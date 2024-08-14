@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+# Additional updates incorporated from https://github.com/linuxkidd/rvc-monitor-py/blob/474b635f3fbb7dddf65f3ebe273b7326503075ef/etc/rvc/rvc-spec.yml
+
 ---
 
 # This file is versioned. Any changes here, even as small as changing
@@ -2794,9 +2796,64 @@ API_VERSION: 1
 
 1FFB3:
   name: WATER_PUMP_STATUS
+  parameters:
+    - byte: 0
+      bit: 0-1
+      name: operating status
+      type: bit2
+      values:
+        00: pump disabled
+        01: pump enabled
+    - byte: 0
+      bit: 2-3
+      name: pump status
+      type: bit2
+      values:
+        00: pump not running
+        01: pump running
+    - byte: 0
+      bit: 4-5
+      name: water hookup detected
+      type: bit2
+      values:
+        00: outside water connected
+        01: no outside water
+    - byte: 1-2
+      name: current system pressure
+      type: unit16
+      unit: Pa
+    - byte: 3-4
+      name: pump pressure setting
+      type: unit16
+      unit: Pa
+    - byte: 5-6
+      name: regulator pressure setting
+      type: unit16
+      unit: Pa
+    - byte: 7
+      name: operating current
+      type: uint8
+      unit: A
 
 1FFB2:
   name: WATER_PUMP_COMMAND
+  parameters:
+    - byte: 0
+      bit: 0-1
+      name: command
+      type: bit2
+      values:
+        00: disable pump
+        01: enable pump
+    - byte: 1-2
+      name: pump pressure setting
+      type: uint16
+      unit: Pa
+    - byte: 3-4
+      name: regulator pressure setting
+      type: uint16
+      unit: Pa
+
 
 1FFB1:
   name: AUTOFILL_STATUS
@@ -3266,6 +3323,114 @@ API_VERSION: 1
       name: bank select
       type: uint4
 
+1FE99:
+  name: WATERHEATER_STATUS_2
+  parameters:
+    - byte: 0
+      name: instance
+      type: unit8
+      comment: instance 0 is all
+    - byte: 1
+      bit: 0-3
+      name: electric element level
+      type: unit4
+    - byte: 1
+      bit: 4-7
+      name: max electric element level
+      type: unit4
+    - byte: 2
+      bit: 0-3
+      name: engine preheat
+      values:
+        0000: off
+        0001: on
+
+1FE98:
+  name: WATERHEATER_COMMAND2
+  parameters:
+    - byte: 0
+      name: instance
+      type: unit8
+      comment: instance 0 is all
+    - byte: 1
+      bit: 0-3
+      name: engine preheat
+      type: unit4
+      values:
+        0000: off
+        0001: on
+        0101: test (forced on)
+    - byte: 2
+      name: command
+      type: unit8
+      values:
+        0: electric low - enable
+        1: electric low - disable
+        2: electric Low - toggle
+        3: electric high - enable
+        4: electric high - disable
+        5: electric high - toggle
+        6: burner - enable
+        7: burner - disable
+        8: burner - toggle
+        9: electric - cycle (low to high to off)
+        10: electric - cycle (high to low to off)
+        11: electric low test - toggle
+        12: electric high test - toggle
+        13: burner test - toggle 
+
+1FE97:
+  name: CIRCULATION_PUMP_STATUS
+  parameters:
+    - byte: 0
+      name: instance
+      type: uint8
+      comment: instance 0 is all
+    - byte: 1
+      bit: 0-3
+      name: output status
+      type: bit4
+      values:
+        0000: off
+        0001: on
+        0101: test (forced on)
+    - byte: 2
+      bit: 0-1
+      name: pump overcurrent status
+      type: bit2
+      values:
+        00: no overcurrent detected
+        01: overcurrent detected
+    - byte: 2
+      bit: 2-3
+      name: pump undercurrent status
+      type: bit2
+      values:
+        00: no undercurrent detected
+        01: undercurrent detected
+    - byte: 2
+      bit: 4-5
+      name: pump temperature status
+      type: bit2
+      values:
+        00: temperature normal
+        01: temperature warning
+
+1FE96:
+  name: CIRCULATION_PUMP_COMMAND
+  parameters:
+    - byte: 0
+      name: instance
+      type: uint8
+      comment: instance 0 is all
+    - byte: 1
+      bit: 0-3
+      name: output mode
+      type: bit4
+      values:
+        0000: off (end of test)
+        0101: test (forced on)
+
 0FECA:
   name: DM_1
   alias: 1FECA
@@ -3485,4 +3650,3 @@ Z0005:
       name: low frequency limit
       type: uint8
       unit: Hz
-
