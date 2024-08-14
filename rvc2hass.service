@@ -1,0 +1,21 @@
+[Unit]
+Description=RVC to Home Assistant CAN Bus Monitor
+Wants=network-online.target
+After=network-online.target mosquitto.service
+Requires=mosquitto.service
+
+[Service]
+Type=notify
+ExecStart=/home/pi/src/rvc2hass/rvc2hass.pl
+User=pi
+Group=pi
+Restart=on-failure
+RestartSec=10s
+WatchdogSec=30s
+# 30 seconds, systemd expects this in microseconds
+Environment="WATCHDOG_USEC=30000000"
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
