@@ -83,13 +83,6 @@ open my $file, '-|', 'candump', '-ta', 'can0' or die "Cannot start candump: $!\n
 # Notify systemd of successful startup
 systemd_notify("READY=1");
 
-while (my $line = <$file>) {
-    chomp $line;
-    my @parts = split ' ', $line;
-    process_packet(@parts);
-}
-close $file;
-
 # Global MQTT subscription for command topics
 foreach my $dgn (keys %$lookup) {
     foreach my $instance (keys %{$lookup->{$dgn}}) {
@@ -116,7 +109,12 @@ foreach my $dgn (keys %$lookup) {
     }
 }
 
-
+while (my $line = <$file>) {
+    chomp $line;
+    my @parts = split ' ', $line;
+    process_packet(@parts);
+}
+close $file;
 
 sub process_packet {
     my @parts = @_;
