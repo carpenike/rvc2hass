@@ -104,7 +104,11 @@ sub process_packet {
         if (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{$instance}) {
             my $configs = $lookup->{$dgn}->{$instance};
             foreach my $config (@$configs) {
-                publish_mqtt($config, $result);
+                if ($config->{device_type} eq 'light') {
+                    handle_dimmable_light($config, $result);
+                } else {
+                    publish_mqtt($config, $result);
+                }
             }
         } elsif (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{default}) {
             # Use 'default' if no specific instance is found
@@ -121,16 +125,28 @@ sub process_packet {
     }
 }
 
+sub handle_dimmable_light {
+    my ($config, $result) = @_;
+    
+    # Extract and calculate brightness and command state
+    my $brightness = $result->{'operating status (brightness)'};
+    my $command = ($brightness == 100) ? 'on' : ($brightness > 0) ? 'dim' : 'off';
+
+    # Add these calculated values to the result hash to be passed to publish_mqtt
+    $result->{'calculated_brightness'} = $brightness;
+    $result->{'calculated_command'} = $command;
+    
+    # Call the publish_mqtt function with the updated result
+    publish_mqtt($config, $result);
+}
+
 sub publish_mqtt {
     my ($config, $result) = @_;
 
     my $ha_name = $config->{ha_name};
     my $friendly_name = $config->{friendly_name};
     my $state_topic = $config->{state_topic};
-
-    # Determine the discovery topic based on the device_type
-    my $device_type = $config->{device_type} // 'sensor';  # Default to 'sensor' if not defined
-    my $config_topic = "homeassistant/$device_type/$ha_name/config";
+    my $command_topic = $config->{command_topic};  # If command_topic is defined
 
     # Prepare the MQTT configuration message
     my %config_message = (
@@ -145,9 +161,23 @@ sub publish_mqtt {
     my $config_json = encode_json(\%config_message);
     $mqtt->retain($config_topic, $config_json);
 
-    # Publish the state message
-    my $state_json = encode_json($result);
+    # Prepare the state message
+    my %state_message;
+    $state_message{brightness} = $result->{'calculated_brightness'} if exists $result->{'calculated_brightness'};
+    $state_message{command} = $result->{'calculated_command'} if exists $result->{'calculated_command'};
+    
+    # Merge with existing result data
+    my $state_json = encode_json({ %$result, %state_message });
     $mqtt->retain($state_topic, $state_json);
+
+    # Optionally, handle publishing commands if the command_topic is used
+    if ($command_topic) {
+        my %command_message = (
+            # Command-specific logic here, if applicable
+        );
+        my $command_json = encode_json(\%command_message);
+        $mqtt->retain($command_topic, $command_json);
+    }
 }
 
 sub decode {

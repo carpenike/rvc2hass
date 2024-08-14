@@ -1,12 +1,18 @@
 # RVC to Home Assistant CAN Bus Monitor
 
-This project is a Perl script that monitors the CAN bus for RVC (RV-C) messages and publishes relevant data to an MQTT broker, making the data available for Home Assistant integration.
+This project monitors the CAN bus for RVC (RV-C) messages and publishes relevant data to an MQTT broker, making the data available for Home Assistant integration.
 
 ## Features
 
 - Monitors CAN bus messages and decodes them using a specified YAML configuration.
 - Publishes decoded data to an MQTT broker for Home Assistant auto-discovery.
 - Supports systemd service for automatic startup and watchdog functionality.
+
+## Current Status
+
+This project is very alpha. The scripts currently decode all of the data that comes off of the RV-C canbus and there's a skeleton framework for creating Home Assistant entitites for a 2021 Entegra Aspire 44R.
+
+There is currently no control of those devices from Home Assistant. The vision is to have the MQTT entities define a separate command topic as part of their creation that Home Assistant will use to control the device, and a separate process that watches for those MQTT command topics and initiates a can bus write command.
 
 ## Files
 
