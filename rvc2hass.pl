@@ -9,6 +9,7 @@ use Net::MQTT::Simple;
 use Try::Tiny;
 use IO::Socket::UNIX;
 use threads;
+use threads::shared;
 use Time::HiRes qw(sleep);
 use File::Basename;
 use Sys::Syslog qw(:standard :macros);
@@ -17,6 +18,9 @@ use Getopt::Long;
 # Command-line options
 my $debug = 0;
 GetOptions("debug" => \$debug);
+
+# Create a mutex for CAN bus access
+my $canbus_mutex :shared;
 
 # Pre-start checks
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV));
@@ -174,7 +178,7 @@ sub publish_mqtt {
         value_template => $config->{value_template},
         device_class => $config->{device_class},  # Include device_class if applicable
         unique_id => $ha_name,  # Ensure unique ID for the device
-        json_attributes_topic => $state_topic,
+        json_attributes_topic => $state_topic
     );
 
     my $config_json = encode_json(\%config_message);
@@ -193,24 +197,55 @@ sub publish_mqtt {
 sub process_command {
     my ($config, $command_message) = @_;
 
-    # Add logic here to handle the command and write it back to the CAN bus
-    # based on the values from the $command_message and $config.
-
     if ($config->{device_type} eq 'light') {
-        my $brightness = $command_message->{brightness};
-        my $command = ($brightness == 100) ? 'on' : ($brightness > 0) ? 'dim' : 'off';
+        my $dgn = $config->{dgn};
+        my $instance = $config->{instance};
 
-        # Format the CAN bus message for this command
-        # Example of how you might format a CAN bus message:
-        # system('cansend can0 '.$hexCanId."#".$hexData);
-        
-        log_debug("Handling light command: $command for $config->{ha_name}");
-        
-    } elsif ($config->{device_type} eq 'switch') {
-        # Process switch-specific commands
-        log_debug("Handling switch command for $config->{ha_name}");
+        my $command;
+        my $brightness;
+
+        # Determine the command based on the incoming message
+        if (exists $command_message->{state}) {
+            if ($command_message->{state} eq 'ON') {
+                $command = 17;  # Example command for turning on a dimmable light
+                $brightness = 100;  # Default to full brightness if not specified
+            } elsif ($command_message->{state} eq 'OFF') {
+                $command = 3;  # Example command for turning off the light
+                $brightness = 0;
+            }
+        }
+
+        # Handle brightness level if specified
+        if (exists $command_message->{brightness}) {
+            $brightness = $command_message->{brightness};
+            $command = 17 if !defined $command;  # Set command to adjust brightness if not already set
+        }
+
+        # Lock before sending CAN bus message
+        {
+            lock($canbus_mutex);
+
+            # Construct CAN bus message
+            if (defined $command && defined $brightness) {
+                my $prio = 6;  # Priority level (adjust as needed)
+                my $dgnhi = substr($dgn, 0, 3);  # High part of the DGN
+                my $dgnlo = substr($dgn, 3, 2);  # Low part of the DGN
+                my $srcAD = 99;  # Source address (adjust as needed)
+
+                my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
+                my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
+                my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness * 2, $command, 255);
+
+                # Send the command to the CAN bus
+                system('cansend can0 '.$hexCanId."#".$hexData);
+                log_to_journald("Sent CAN bus message: $hexCanId#$hexData for light $config->{ha_name}");
+            } else {
+                log_to_journald("Invalid command or brightness value for light $config->{ha_name}");
+            }
+        }
+    } else {
+        log_to_journald("process_command received a non-light device type: $config->{device_type}");
     }
-    # Add more device types as needed
 }
 
 sub decode {
