@@ -45,7 +45,7 @@ my $retry_delay = 5;  # seconds
 for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
     try {
         $mqtt = Net::MQTT::Simple->new("$mqtt_host:$mqtt_port");
-        return;  # Exit the loop if connection is successful
+        last;  # Exit the loop if connection is successful
     }
     catch {
         log_to_journald("Attempting to reconnect to MQTT: Attempt $attempt");
@@ -69,7 +69,6 @@ threads->create(sub {
 open my $file, 'candump -ta can0 |' or die "Cannot start candump: $!\n";
 
 while (my $line = <$file>) {
-    #print "Received line: $line\n";  # Debug line
     chomp $line;
     my @parts = split ' ', $line;
     process_packet(@parts);
@@ -81,33 +80,26 @@ sub process_packet {
     my $binCanId = sprintf("%b", hex($parts[2]));
     my $dgn = sprintf("%05X", oct("0b" . substr($binCanId, 4, 17)));  # DGN extraction
 
-    # Extract instance from packet
-    my $instance = $result->{'instance'};
+    my $result = decode($dgn, join '', @parts[4..$#parts]);
 
-    # Check if the DGN and instance exist in the lookup
-    if (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{$instance}) {
-        my $configs = $lookup->{$dgn}->{$instance};
-        my $result = decode($dgn, join '', @parts[4..$#parts]);
+    if ($result) {
+        my $instance = $result->{'instance'};
 
-        if ($result) {
+        if (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{$instance}) {
+            my $configs = $lookup->{$dgn}->{$instance};
             foreach my $config (@$configs) {
                 publish_mqtt($config, $result);
             }
         } else {
-            log_to_journald("No data to publish for DGN $dgn and instance $instance");
+            log_to_temp_file($dgn);
         }
     } else {
-        log_to_temp_file($dgn);
+        log_to_journald("No data to publish for DGN $dgn");
     }
 }
 
-
 sub publish_mqtt {
-    my ($dgn, $result) = @_;  # Declare parameters for the function
-    my $config = $lookup->{$dgn};
-
-    # Ensure we have a configuration
-    return unless $config;
+    my ($config, $result) = @_;
 
     my $ha_name = $config->{ha_name};
     my $friendly_name = $config->{friendly_name};
@@ -135,16 +127,14 @@ sub publish_mqtt {
     $mqtt->retain($state_topic, $state_json);
 }
 
-
 sub decode {
     my ($dgn, $data) = @_;
-    print "Decoding DGN: $dgn with data: $data\n";  # Debug line
     my %result;
 
     # Fetch the decoder configuration for the given DGN from rvc-spec.yml
     my $decoder = $decoders->{$dgn};
     unless ($decoder) {
-        print "No decoder found for DGN: $dgn\n";  # Debug line
+        log_to_journald("No decoder found for DGN $dgn");
         return;
     }
 
