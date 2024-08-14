@@ -31,7 +31,7 @@ A systemd service file for managing the script as a service on Linux systems.
 1. **Clone the Repository**
    
    ```bash
-   git clone https://github.com/yourusername/rvc2hass.git
+   git clone https://github.com/carpenike/rvc2hass.git
    cd rvc2hass
    ```
 
