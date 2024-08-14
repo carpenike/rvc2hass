@@ -73,38 +73,6 @@ if ($watchdog_interval) {
     })->detach;
 }
 
-# Subscribe to command topics globally
-foreach my $dgn (keys %$lookup) {
-    foreach my $instance (keys %{$lookup->{$dgn}}) {
-        foreach my $config (@{$lookup->{$dgn}->{$instance}}) {
-            if (my $command_topic = $config->{command_topic}) {
-                try {
-                    $mqtt->subscribe($command_topic => sub {
-                        my ($topic, $message) = @_;
-                        log_to_journald("Received command on topic $topic: $message");
-                        my $command_message;
-                        
-                        try {
-                            $command_message = decode_json($message);
-                        } catch {
-                            log_to_journald("Failed to decode JSON message on topic $topic: $_");
-                            return;
-                        };
-                        
-                        process_command($config, $command_message);
-                        log_to_journald("Processed command on topic $topic for device $config->{ha_name}");
-                    });
-                    log_to_journald("Successfully subscribed to command topic: $command_topic");
-                } catch {
-                    log_to_journald("Failed to subscribe to command topic $command_topic: $_");
-                    # Optional: Retry logic or error handling
-                };
-            }
-        }
-    }
-}
-
-
 # Open CAN bus data stream
 open my $file, '-|', 'candump', '-ta', 'can0' or die "Cannot start candump: $!\n";
 
@@ -117,6 +85,25 @@ while (my $line = <$file>) {
     process_packet(@parts);
 }
 close $file;
+
+# Global MQTT subscription for command topics
+foreach my $dgn (keys %$lookup) {
+    foreach my $instance (keys %{$lookup->{$dgn}}) {
+        my $configs = $lookup->{$dgn}->{$instance};
+        foreach my $config (@$configs) {
+            my $command_topic = $config->{command_topic};  # If command_topic is defined
+            if ($command_topic) {
+                $mqtt->subscribe($command_topic => sub {
+                    my ($topic, $message) = @_;
+                    log_to_journald("Received command on topic $topic: $message");
+                    my $command_message = decode_json($message);
+                    process_command($config, $command_message);
+                    log_to_journald("Processed command on topic $topic for device $config->{ha_name}");
+                });
+            }
+        }
+    }
+}
 
 sub process_packet {
     my @parts = @_;
@@ -187,7 +174,7 @@ sub publish_mqtt {
         value_template => $config->{value_template},
         device_class => $config->{device_class},  # Include device_class if applicable
         unique_id => $ha_name,  # Ensure unique ID for the device
-        json_attributes_topic => $state_topic
+        json_attributes_topic => $state_topic,
     );
 
     my $config_json = encode_json(\%config_message);
@@ -201,52 +188,30 @@ sub publish_mqtt {
     # Merge with existing result data
     my $state_json = encode_json({ %$result, %state_message });
     $mqtt->retain($state_topic, $state_json);
-
-    # Optionally, handle publishing commands if the command_topic is used
-    if ($command_topic) {
-        $mqtt->subscribe($command_topic => sub {
-            my ($topic, $message) = @_;
-            log_to_journald("Received command on topic $topic: $message");
-            my $command_message = decode_json($message);
-            process_command($config, $command_message);
-            log_to_journald("Processed command on topic $topic for device $ha_name");
-        });
-    }
 }
 
 sub process_command {
     my ($config, $command_message) = @_;
 
-    my $dgn = $config->{dgn};  # Assume the DGN is provided in the config
-    my $instance = $command_message->{instance} // $config->{instance};  # Use instance from command or config
-    my $command = $command_message->{command};  # The command to process
+    # Add logic here to handle the command and write it back to the CAN bus
+    # based on the values from the $command_message and $config.
 
-    # Example for lights (dimmable lights)
     if ($config->{device_type} eq 'light') {
-        my $brightness = $command_message->{brightness} // 100;  # Default to 100% if brightness is not provided
-        my $prio = 6;  # Example priority value
+        my $brightness = $command_message->{brightness};
+        my $command = ($brightness == 100) ? 'on' : ($brightness > 0) ? 'dim' : 'off';
 
-        # Construct the CAN ID
-        my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex(substr($dgn, 0, 3)), hex(substr($dgn, 3, 2)), hex($config->{srcAD} // '99'));
-        my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
-
-        # Construct the CAN data payload
-        my $duration = $command_message->{duration} // 255;  # Default duration if not provided
-        my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness, $command, $duration);
-
-        # Send the command to the CAN bus
-        system('cansend can0 '.$hexCanId."#".$hexData);
-        log_to_journald("Sent CAN command: cansend can0 $hexCanId#$hexData");
+        # Format the CAN bus message for this command
+        # Example of how you might format a CAN bus message:
+        # system('cansend can0 '.$hexCanId."#".$hexData);
+        
+        log_debug("Handling light command: $command for $config->{ha_name}");
+        
+    } elsif ($config->{device_type} eq 'switch') {
+        # Process switch-specific commands
+        log_debug("Handling switch command for $config->{ha_name}");
     }
-    elsif ($config->{device_type} eq 'switch') {
-        # Example for switches
-        my $switch_command = $command_message->{state};  # Assume 'state' is 'on' or 'off'
-        # Translate this command to a CAN bus message and send it.
-        # Similar logic as above for constructing CAN ID and data
-    }
-    # Handle other device types similarly
+    # Add more device types as needed
 }
-
 
 sub decode {
     my ($dgn, $data) = @_;
@@ -308,7 +273,7 @@ sub get_bytes {
     my ($data, $byterange) = @_;
 
     my ($start_byte, $end_byte) = split(/-/, $byterange);
-    $end_byte = $start_byte if not defined $end_byte;
+    $end_byte = $start_byte if !defined $end_byte;
     my $length = ($end_byte - $start_byte + 1) * 2;
     
     # Ensure we're not exceeding the length of the data string
