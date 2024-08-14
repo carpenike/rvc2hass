@@ -168,7 +168,7 @@ sub decode {
 
         if (defined $parameter->{bit}) {
             my $bits = get_bits($bytes, $parameter->{bit});
-            $value = oct('0b' . $bits);
+            $value = oct('0b' . $bits) if defined $bits;
         }
 
         if (defined $unit) {
@@ -197,8 +197,11 @@ sub get_bytes {
     my ($start_byte, $end_byte) = split(/-/, $byterange);
     $end_byte = $start_byte if !defined $end_byte;
     my $length = ($end_byte - $start_byte + 1) * 2;
+    
+    # Ensure we're not exceeding the length of the data string
+    return '' if $start_byte * 2 >= length($data);
+    
     my $sub_bytes = substr($data, $start_byte * 2, $length);
-
     my @byte_pairs = $sub_bytes =~ /(..)/g;
     my $bytes = join '', reverse @byte_pairs;
 
@@ -207,19 +210,21 @@ sub get_bytes {
 
 sub get_bits {
     my ($bytes, $bitrange) = @_;
+    return unless length($bytes);  # Ensure we have bytes to work with
+
     my $bits = hex2bin($bytes);
+    return unless defined $bits && length($bits);
 
     my ($start_bit, $end_bit) = split(/-/, $bitrange);
     $end_bit = $start_bit if !defined $end_bit;
 
-    my $sub_bits = substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
-
-    return $sub_bits;
+    return substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
 }
 
 sub hex2bin {
     my $hex = shift;
-    return unpack("B*", pack("H*", $hex));
+    return unpack("B8", pack("C", hex $hex)) if length($hex) == 2;
+    return '';
 }
 
 sub convert_unit {
@@ -273,7 +278,6 @@ sub convert_unit {
     return $new_value;
 }
 
-# Custom rounding function
 sub round {
     my ($value, $precision) = @_;
     return int($value / $precision + 0.5) * $precision;
