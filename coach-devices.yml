@@ -1,0 +1,141 @@
+17F00:
+  ha_name: "general_reset"
+  friendly_name: "General Reset"
+  device_class: "switch"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.reset_status }}"
+
+1FED8:
+  ha_name: "configuration_status"
+  friendly_name: "Configuration Status"
+  device_class: "sensor"
+  unit_of_measurement: "status"
+  value_template: "{{ value_json.config_status }}"
+
+1FFDF:
+  ha_name: "generator_ac_status_1"
+  friendly_name: "Generator AC Status 1"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.instance }}"
+
+1FFDE:
+  ha_name: "generator_ac_status_2"
+  friendly_name: "Generator AC Status 2"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.instance }}"
+
+1FFDD:
+  ha_name: "generator_ac_status_3"
+  friendly_name: "Generator AC Status 3"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.instance }}"
+
+1FF94:
+  ha_name: "generator_ac_status_4"
+  friendly_name: "Generator AC Status 4"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.instance }}"
+
+1FEC6:
+  ha_name: "generator_dc_status_1"
+  friendly_name: "Generator DC Status 1"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.charge_voltage }}"
+
+1FEC5:
+  ha_name: "generator_dc_configuration_status"
+  friendly_name: "Generator DC Configuration Status"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.configuration_status }}"
+
+1FEC4:
+  ha_name: "generator_dc_command"
+  friendly_name: "Generator DC Command"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.command_status }}"
+
+1FEC3:
+  ha_name: "generator_dc_configuration_command"
+  friendly_name: "Generator DC Configuration Command"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.configuration_command_status }}"
+
+1FEC2:
+  ha_name: "generator_dc_equalization_status"
+  friendly_name: "Generator DC Equalization Status"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.equalization_status }}"
+
+1FEC1:
+  ha_name: "generator_dc_equalization_configuration_status"
+  friendly_name: "Generator DC Equalization Configuration Status"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.equalization_configuration_status }}"
+
+1FEC0:
+  ha_name: "generator_dc_equalization_configuration_command"
+  friendly_name: "Generator DC Equalization Configuration Command"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.equalization_configuration_command_status }}"
+
+1FFDC:
+  ha_name: "generator_status_1"
+  friendly_name: "Generator Status 1"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.status }}"
+
+1FFDB:
+  ha_name: "generator_status_2"
+  friendly_name: "Generator Status 2"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.temperature_shutdown_switch }}"
+
+1FFDA:
+  ha_name: "generator_command"
+  friendly_name: "Generator Command"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.command }}"
+
+1FFD9:
+  ha_name: "generator_start_config_status"
+  friendly_name: "Generator Start Config Status"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.start_config_status }}"
+
+1FFD8:
+  ha_name: "generator_start_config_command"
+  friendly_name: "Generator Start Config Command"
+  device_class: "sensor"
+  unit_of_measurement: ""
+  value_template: "{{ value_json.start_config_command }}"
+
+1FEDA:
+  50:
+    - ha_name: light_a
+      friendly_name: Light A
+      state_topic: "homeassistant/sensor/light_a/state"
+      value_template: "{{ value_json['operating status (brightness)'] }}"
+      device_class: light
+      device_type: sensor
+  51:
+    - ha_name: light_b
+      friendly_name: Light B
+      state_topic: "homeassistant/sensor/light_b/state"
+      value_template: "{{ value_json['operating status (brightness)'] }}"
+      device_class: light
+      device_type: sensor
