@@ -180,7 +180,7 @@ sub decode {
         }
     }
 
-    return %result;
+    return \%result;
 }
 
 sub get_bytes {
@@ -216,52 +216,48 @@ sub convert_unit {
     my ($value, $unit, $type) = @_;
     my $new_value = $value;
 
-    given (lc($unit)) {
-        when ('pct') {
-            $new_value = 'n/a';
-            $new_value = $value / 2 unless ($value == 255);
+    if (lc($unit) eq 'pct') {
+        $new_value = 'n/a';
+        $new_value = $value / 2 unless ($value == 255);
+    } elsif (lc($unit) eq 'deg c') {
+        $new_value = 'n/a';
+        if ($type eq 'uint8') {
+            $new_value = $value - 40 unless ($value == 255);
+        } elsif ($type eq 'uint16') {
+            $new_value = nearest(.1, $value * 0.03125 - 273) unless ($value == 65535);
         }
-        when ('deg c') {
-            $new_value = 'n/a';
-            given ($type) {
-                when ('uint8')  { $new_value = $value - 40 unless ($value == 255); }
-                when ('uint16') { $new_value = nearest(.1, $value * 0.03125 - 273) unless ($value == 65535); }
+    } elsif (lc($unit) eq 'v') {
+        $new_value = 'n/a';
+        if ($type eq 'uint8') {
+            $new_value = $value unless ($value == 255);
+        } elsif ($type eq 'uint16') {
+            $new_value = nearest(.1, $value * 0.05) unless ($value == 65535);
+        }
+    } elsif (lc($unit) eq 'a') {
+        $new_value = 'n/a';
+        if ($type eq 'uint8') {
+            $new_value = $value;
+        } elsif ($type eq 'uint16') {
+            $new_value = nearest(.1, $value * 0.05 - 1600) unless ($value == 65535);
+        } elsif ($type eq 'uint32') {
+            $new_value = nearest(.01, $value * 0.001 - 2000000) unless $value == 4294967295;
+        }
+    } elsif (lc($unit) eq 'hz') {
+        if ($type eq 'uint8') {
+            $new_value = $value;
+        } elsif ($type eq 'uint16') {
+            $new_value = nearest(.1, $value / 128);
+        }
+    } elsif (lc($unit) eq 'sec') {
+        if ($type eq 'uint8') {
+            if ($value > 240 && $value < 251) {
+                $new_value = (($value - 240) + 4) * 60;
             }
+        } elsif ($type eq 'uint16') {
+            $new_value = $value * 2;
         }
-        when ("v") {
-            $new_value = 'n/a';
-            given ($type) {
-                when ('uint8')  { $new_value = $value unless ($value == 255); }
-                when ('uint16') { $new_value = nearest(.1, $value * 0.05) unless ($value == 65535); }
-            }
-        }
-        when ("a") {
-            $new_value = 'n/a';
-            given ($type) {
-                when ('uint8')  { $new_value = $value; }
-                when ('uint16') { $new_value = nearest(.1, $value * 0.05 - 1600) unless ($value == 65535); }
-                when ('uint32') { $new_value = nearest(.01, $value * 0.001 - 2000000) unless $value == 4294967295; }
-            }
-        }
-        when ("hz") {
-            given ($type) {
-                when ('uint8')  { $new_value = $value; }
-                when ('uint16') { $new_value = nearest(.1, $value / 128); }
-            }
-        }
-        when ("sec") {
-            given ($type) {
-                when ('uint8') {
-                    if ($value > 240 && $value < 251) {
-                        $new_value = (($value - 240) + 4) * 60;
-                    }
-                }
-                when ('uint16') { $new_value = $value * 2; }
-            }
-        }
-        when ("bitmap") {
-            $new_value = sprintf('%08b', $value);
-        }
+    } elsif (lc($unit) eq 'bitmap') {
+        $new_value = sprintf('%08b', $value);
     }
 
     return $new_value;
