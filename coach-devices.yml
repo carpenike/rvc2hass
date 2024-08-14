@@ -166,6 +166,7 @@
     - ha_name:  master_bath_ceiling_light
       friendly_name: Master Bathroom Ceiling Light
       state_topic: "homeassistant/light/master_bath_ceiling_light/state"
+      comand_topic: "homeassistant/light/master_bath_ceiling_light/set"
       value_template: "{{ value_json['operating status (brightness)'] }}"
       device_class: light
       device_type: light
@@ -173,6 +174,7 @@
     - ha_name:  master_bath_lav_light
       friendly_name: Master Bathroom Lavatory Light
       state_topic: "homeassistant/light/master_bath_lav_light/state"
+      command_topic: "homeassistant/light/master_bath_lav_light/set"
       value_template: "{{ value_json['operating status (brightness)'] }}"
       device_class: light
       device_type: light
@@ -180,6 +182,7 @@
     - ha_name:  master_bath_accent_light
       friendly_name: Master Bathroom Accent Light
       state_topic: "homeassistant/light/master_bath_accent_light/state"
+      command_topic: "homeassistant/light/master_bath_accent_light/set"
       value_template: "{{ value_json['operating status (brightness)'] }}"
       device_class: light
       device_type: light

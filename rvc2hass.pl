@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use File::Temp qw(tempdir);
 use YAML::Tiny;
-use JSON qw(encode_json);
+use JSON qw(encode_json decode_json);
 use Net::MQTT::Simple;
 use Try::Tiny;
 use IO::Socket::UNIX;
@@ -140,6 +140,35 @@ sub handle_dimmable_light {
     publish_mqtt($config, $result);
 }
 
+sub process_command {
+    my ($config, $command_message) = @_;
+    
+    # Extract necessary information from the config and command message
+    my $dgn = $config->{dgn};  # Assume DGN is part of the config
+    my $command = $command_message->{command};
+    my $brightness = $command_message->{brightness};
+    
+    # Send the command to the CAN bus
+    send_canbus_command($dgn, $config, $command, $brightness);
+}
+
+sub send_canbus_command {
+    my ($dgn, $config, $command, $brightness) = @_;
+
+    my $instance = $config->{instance} // 0;  # Adjust according to your logic
+    my $prio = '6';
+    my $dgnhi = substr($dgn, 0, 3);
+    my $dgnlo = substr($dgn, 3, 2);
+    my $srcAD = '99';  # Example source address
+    my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
+
+    my $brightness_value = defined $brightness ? $brightness * 2 : 255;  # Adjust brightness calculation if needed
+    my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness_value, $command, 255);
+    my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
+
+    system('cansend can0 ' . $hexCanId . '#' . $hexData);
+}
+
 sub publish_mqtt {
     my ($config, $result) = @_;
 
@@ -159,7 +188,7 @@ sub publish_mqtt {
     );
 
     my $config_json = encode_json(\%config_message);
-    $mqtt->retain($config_topic, $config_json);
+    $mqtt->retain("homeassistant/$config->{device_type}/$ha_name/config", $config_json);
 
     # Prepare the state message
     my %state_message;
@@ -172,12 +201,48 @@ sub publish_mqtt {
 
     # Optionally, handle publishing commands if the command_topic is used
     if ($command_topic) {
-        my %command_message = (
-            # Command-specific logic here, if applicable
-        );
-        my $command_json = encode_json(\%command_message);
-        $mqtt->retain($command_topic, $command_json);
+        $mqtt->subscribe($command_topic => sub {
+            my ($topic, $message) = @_;
+            my $command_message = decode_json($message);
+            process_command($config, $command_message);
+        });
     }
+}
+
+sub get_bytes {
+    my ($data, $byterange) = @_;
+
+    my ($start_byte, $end_byte) = split(/-/, $byterange);
+    $end_byte = $start_byte if !defined $end_byte;
+    my $length = ($end_byte - $start_byte + 1) * 2;
+    
+    # Ensure we're not exceeding the length of the data string
+    return '' if $start_byte * 2 >= length($data);
+    
+    my $sub_bytes = substr($data, $start_byte * 2, $length);
+    my @byte_pairs = $sub_bytes =~ /(..)/g;
+    my $bytes = join '', reverse @byte_pairs;
+
+    return $bytes;
+}
+
+sub get_bits {
+    my ($bytes, $bitrange) = @_;
+    return unless length($bytes);  # Ensure we have bytes to work with
+
+    my $bits = hex2bin($bytes);
+    return unless defined $bits && length($bits);
+
+    my ($start_bit, $end_bit) = split(/-/, $bitrange);
+    $end_bit = $start_bit if not defined $end_bit;
+
+    return substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
+}
+
+sub hex2bin {
+    my $hex = shift;
+    return unpack("B8", pack("C", hex $hex)) if length($hex) == 2;
+    return '';
 }
 
 sub decode {
@@ -234,42 +299,6 @@ sub decode {
     $result{instance} = $result{instance} // undef;
 
     return \%result;
-}
-
-sub get_bytes {
-    my ($data, $byterange) = @_;
-
-    my ($start_byte, $end_byte) = split(/-/, $byterange);
-    $end_byte = $start_byte if !defined $end_byte;
-    my $length = ($end_byte - $start_byte + 1) * 2;
-    
-    # Ensure we're not exceeding the length of the data string
-    return '' if $start_byte * 2 >= length($data);
-    
-    my $sub_bytes = substr($data, $start_byte * 2, $length);
-    my @byte_pairs = $sub_bytes =~ /(..)/g;
-    my $bytes = join '', reverse @byte_pairs;
-
-    return $bytes;
-}
-
-sub get_bits {
-    my ($bytes, $bitrange) = @_;
-    return unless length($bytes);  # Ensure we have bytes to work with
-
-    my $bits = hex2bin($bytes);
-    return unless defined $bits && length($bits);
-
-    my ($start_bit, $end_bit) = split(/-/, $bitrange);
-    $end_bit = $start_bit if not defined $end_bit;
-
-    return substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
-}
-
-sub hex2bin {
-    my $hex = shift;
-    return unpack("B8", pack("C", hex $hex)) if length($hex) == 2;
-    return '';
 }
 
 sub convert_unit {
