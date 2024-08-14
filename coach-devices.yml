@@ -1,3 +1,4 @@
+---
 17F00:
   ha_name: "general_reset"
   friendly_name: "General Reset"
@@ -124,18 +125,18 @@
   unit_of_measurement: ""
   value_template: "{{ value_json.start_config_command }}"
 
-1FEDA:
-  50:
-    - ha_name: light_a
-      friendly_name: Light A
-      state_topic: "homeassistant/sensor/light_a/state"
-      value_template: "{{ value_json['operating status (brightness)'] }}"
-      device_class: light
-      device_type: sensor
-  51:
-    - ha_name: light_b
-      friendly_name: Light B
-      state_topic: "homeassistant/sensor/light_b/state"
-      value_template: "{{ value_json['operating status (brightness)'] }}"
-      device_class: light
-      device_type: sensor
+# 1FEDA:
+#   50:
+#     - ha_name: light_a
+#       friendly_name: Light A
+#       state_topic: "homeassistant/sensor/light_a/state"
+#       value_template: "{{ value_json['operating status (brightness)'] }}"
+#       device_class: light
+#       device_type: sensor
+#   51:
+#     - ha_name: light_b
+#       friendly_name: Light B
+#       state_topic: "homeassistant/sensor/light_b/state"
+#       value_template: "{{ value_json['operating status (brightness)'] }}"
+#       device_class: light
+#       device_type: sensor
