@@ -93,4 +93,3 @@ A systemd service file for managing the script as a service on Linux systems.
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
-
