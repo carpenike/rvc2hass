@@ -73,6 +73,38 @@ if ($watchdog_interval) {
     })->detach;
 }
 
+# Subscribe to command topics globally
+foreach my $dgn (keys %$lookup) {
+    foreach my $instance (keys %{$lookup->{$dgn}}) {
+        foreach my $config (@{$lookup->{$dgn}->{$instance}}) {
+            if (my $command_topic = $config->{command_topic}) {
+                try {
+                    $mqtt->subscribe($command_topic => sub {
+                        my ($topic, $message) = @_;
+                        log_to_journald("Received command on topic $topic: $message");
+                        my $command_message;
+                        
+                        try {
+                            $command_message = decode_json($message);
+                        } catch {
+                            log_to_journald("Failed to decode JSON message on topic $topic: $_");
+                            return;
+                        };
+                        
+                        process_command($config, $command_message);
+                        log_to_journald("Processed command on topic $topic for device $config->{ha_name}");
+                    });
+                    log_to_journald("Successfully subscribed to command topic: $command_topic");
+                } catch {
+                    log_to_journald("Failed to subscribe to command topic $command_topic: $_");
+                    # Optional: Retry logic or error handling
+                };
+            }
+        }
+    }
+}
+
+
 # Open CAN bus data stream
 open my $file, '-|', 'candump', '-ta', 'can0' or die "Cannot start candump: $!\n";
 
@@ -140,35 +172,6 @@ sub handle_dimmable_light {
     publish_mqtt($config, $result);
 }
 
-sub process_command {
-    my ($config, $command_message) = @_;
-    
-    # Extract necessary information from the config and command message
-    my $dgn = $config->{dgn};  # Assume DGN is part of the config
-    my $command = $command_message->{command};
-    my $brightness = $command_message->{brightness};
-    
-    # Send the command to the CAN bus
-    send_canbus_command($dgn, $config, $command, $brightness);
-}
-
-sub send_canbus_command {
-    my ($dgn, $config, $command, $brightness) = @_;
-
-    my $instance = $config->{instance} // 0;  # Adjust according to your logic
-    my $prio = '6';
-    my $dgnhi = substr($dgn, 0, 3);
-    my $dgnlo = substr($dgn, 3, 2);
-    my $srcAD = '99';  # Example source address
-    my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
-
-    my $brightness_value = defined $brightness ? $brightness * 2 : 255;  # Adjust brightness calculation if needed
-    my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness_value, $command, 255);
-    my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
-
-    system('cansend can0 ' . $hexCanId . '#' . $hexData);
-}
-
 sub publish_mqtt {
     my ($config, $result) = @_;
 
@@ -203,47 +206,47 @@ sub publish_mqtt {
     if ($command_topic) {
         $mqtt->subscribe($command_topic => sub {
             my ($topic, $message) = @_;
+            log_to_journald("Received command on topic $topic: $message");
             my $command_message = decode_json($message);
             process_command($config, $command_message);
+            log_to_journald("Processed command on topic $topic for device $ha_name");
         });
     }
 }
 
-sub get_bytes {
-    my ($data, $byterange) = @_;
+sub process_command {
+    my ($config, $command_message) = @_;
 
-    my ($start_byte, $end_byte) = split(/-/, $byterange);
-    $end_byte = $start_byte if !defined $end_byte;
-    my $length = ($end_byte - $start_byte + 1) * 2;
-    
-    # Ensure we're not exceeding the length of the data string
-    return '' if $start_byte * 2 >= length($data);
-    
-    my $sub_bytes = substr($data, $start_byte * 2, $length);
-    my @byte_pairs = $sub_bytes =~ /(..)/g;
-    my $bytes = join '', reverse @byte_pairs;
+    my $dgn = $config->{dgn};  # Assume the DGN is provided in the config
+    my $instance = $command_message->{instance} // $config->{instance};  # Use instance from command or config
+    my $command = $command_message->{command};  # The command to process
 
-    return $bytes;
+    # Example for lights (dimmable lights)
+    if ($config->{device_type} eq 'light') {
+        my $brightness = $command_message->{brightness} // 100;  # Default to 100% if brightness is not provided
+        my $prio = 6;  # Example priority value
+
+        # Construct the CAN ID
+        my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex(substr($dgn, 0, 3)), hex(substr($dgn, 3, 2)), hex($config->{srcAD} // '99'));
+        my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
+
+        # Construct the CAN data payload
+        my $duration = $command_message->{duration} // 255;  # Default duration if not provided
+        my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness, $command, $duration);
+
+        # Send the command to the CAN bus
+        system('cansend can0 '.$hexCanId."#".$hexData);
+        log_to_journald("Sent CAN command: cansend can0 $hexCanId#$hexData");
+    }
+    elsif ($config->{device_type} eq 'switch') {
+        # Example for switches
+        my $switch_command = $command_message->{state};  # Assume 'state' is 'on' or 'off'
+        # Translate this command to a CAN bus message and send it.
+        # Similar logic as above for constructing CAN ID and data
+    }
+    # Handle other device types similarly
 }
 
-sub get_bits {
-    my ($bytes, $bitrange) = @_;
-    return unless length($bytes);  # Ensure we have bytes to work with
-
-    my $bits = hex2bin($bytes);
-    return unless defined $bits && length($bits);
-
-    my ($start_bit, $end_bit) = split(/-/, $bitrange);
-    $end_bit = $start_bit if not defined $end_bit;
-
-    return substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
-}
-
-sub hex2bin {
-    my $hex = shift;
-    return unpack("B8", pack("C", hex $hex)) if length($hex) == 2;
-    return '';
-}
 
 sub decode {
     my ($dgn, $data) = @_;
@@ -299,6 +302,42 @@ sub decode {
     $result{instance} = $result{instance} // undef;
 
     return \%result;
+}
+
+sub get_bytes {
+    my ($data, $byterange) = @_;
+
+    my ($start_byte, $end_byte) = split(/-/, $byterange);
+    $end_byte = $start_byte if not defined $end_byte;
+    my $length = ($end_byte - $start_byte + 1) * 2;
+    
+    # Ensure we're not exceeding the length of the data string
+    return '' if $start_byte * 2 >= length($data);
+    
+    my $sub_bytes = substr($data, $start_byte * 2, $length);
+    my @byte_pairs = $sub_bytes =~ /(..)/g;
+    my $bytes = join '', reverse @byte_pairs;
+
+    return $bytes;
+}
+
+sub get_bits {
+    my ($bytes, $bitrange) = @_;
+    return unless length($bytes);  # Ensure we have bytes to work with
+
+    my $bits = hex2bin($bytes);
+    return unless defined $bits && length($bits);
+
+    my ($start_bit, $end_bit) = split(/-/, $bitrange);
+    $end_bit = $start_bit if not defined $end_bit;
+
+    return substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
+}
+
+sub hex2bin {
+    my $hex = shift;
+    return unpack("B8", pack("C", hex $hex)) if length($hex) == 2;
+    return '';
 }
 
 sub convert_unit {
