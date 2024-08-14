@@ -60,18 +60,21 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
 }
 
 # Systemd watchdog initialization
-my $watchdog_interval = int($ENV{WATCHDOG_USEC} / 2 / 1_000_000);  # Convert microseconds to seconds and halve it
+my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
+my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it
 
-# Start watchdog thread
-threads->create(sub {
-    while (1) {
-        systemd_notify("WATCHDOG=1");
-        sleep($watchdog_interval);
-    }
-})->detach;
+# Start watchdog thread if watchdog is enabled
+if ($watchdog_interval) {
+    threads->create(sub {
+        while (1) {
+            systemd_notify("WATCHDOG=1");
+            sleep($watchdog_interval);
+        }
+    })->detach;
+}
 
 # Open CAN bus data stream
-open my $file, 'candump -ta can0 |' or die "Cannot start candump: $!\n";
+open my $file, '-|', 'candump', '-ta', 'can0' or die "Cannot start candump: $!\n";
 
 # Notify systemd of successful startup
 systemd_notify("READY=1");
@@ -85,24 +88,36 @@ close $file;
 
 sub process_packet {
     my @parts = @_;
-    my $binCanId = sprintf("%b", hex($parts[2]));
-    my $dgn = sprintf("%05X", oct("0b" . substr($binCanId, 4, 17)));  # DGN extraction
+    return unless @parts >= 5;  # Ensure there are enough parts to process
 
-    my $result = decode($dgn, join '', @parts[4..$#parts]);
+    my $can_id_hex = $parts[2];
+    my $binCanId = sprintf("%029b", hex($can_id_hex));  # Ensure leading zeros
+    my $dgn_bin = substr($binCanId, 4, 17);  # Extract bits 4 to 20
+    my $dgn = sprintf("%05X", oct("0b$dgn_bin"));  # DGN extraction
+
+    my $data_bytes = join '', @parts[4..$#parts];
+    my $result = decode($dgn, $data_bytes);
 
     if ($result) {
-        my $instance = $result->{'instance'};
+        my $instance = $result->{'instance'} // 'default';  # Use 'default' if instance is not found
 
         if (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{$instance}) {
             my $configs = $lookup->{$dgn}->{$instance};
             foreach my $config (@$configs) {
                 publish_mqtt($config, $result);
             }
+        } elsif (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{default}) {
+            # Use 'default' if no specific instance is found
+            my $configs = $lookup->{$dgn}->{default};
+            foreach my $config (@$configs) {
+                publish_mqtt($config, $result);
+            }
         } else {
-            log_debug("No matching config found for DGN $dgn and instance $instance") if $debug;
+            log_debug("No matching config found for DGN $dgn and instance $instance");
+            log_to_temp_file($dgn);
         }
     } else {
-        log_debug("No data to publish for DGN $dgn") if $debug;
+        log_debug("No data to publish for DGN $dgn");
     }
 }
 
@@ -142,7 +157,7 @@ sub decode {
     # Fetch the decoder configuration for the given DGN from rvc-spec.yml
     my $decoder = $decoders->{$dgn};
     unless ($decoder) {
-        log_debug("No decoder found for DGN $dgn") if $debug;
+        log_debug("No decoder found for DGN $dgn");
         return;
     }
 
@@ -165,7 +180,7 @@ sub decode {
 
         if (defined $parameter->{bit}) {
             my $bits = get_bits($bytes, $parameter->{bit});
-            $value = oct('0b' . $bits);
+            $value = oct('0b' . $bits) if defined $bits;
         }
 
         if (defined $unit) {
@@ -175,7 +190,7 @@ sub decode {
         $result{$name} = $value;
 
         if (defined $unit && lc($unit) eq 'deg c') {
-            $result{$name . " F"} = tempC2F($value);
+            $result{$name . " F"} = tempC2F($value) if $value ne 'n/a';
         }
 
         if ($values) {
@@ -185,7 +200,10 @@ sub decode {
         }
     }
 
-    return %result;
+    # Ensure the instance is captured if defined
+    $result{instance} = $result{instance} // undef;
+
+    return \%result;
 }
 
 sub get_bytes {
@@ -193,83 +211,91 @@ sub get_bytes {
 
     my ($start_byte, $end_byte) = split(/-/, $byterange);
     $end_byte = $start_byte if !defined $end_byte;
-    my $sub_bytes = substr($data, $start_byte * 2, ($end_byte - $start_byte + 1) * 2);
-
-    my $bytes = join '', reverse split /(..)/, $sub_bytes;
+    my $length = ($end_byte - $start_byte + 1) * 2;
+    
+    # Ensure we're not exceeding the length of the data string
+    return '' if $start_byte * 2 >= length($data);
+    
+    my $sub_bytes = substr($data, $start_byte * 2, $length);
+    my @byte_pairs = $sub_bytes =~ /(..)/g;
+    my $bytes = join '', reverse @byte_pairs;
 
     return $bytes;
 }
 
 sub get_bits {
     my ($bytes, $bitrange) = @_;
+    return unless length($bytes);  # Ensure we have bytes to work with
+
     my $bits = hex2bin($bytes);
+    return unless defined $bits && length($bits);
 
     my ($start_bit, $end_bit) = split(/-/, $bitrange);
-    $end_bit = $start_bit if !defined $end_bit;
+    $end_bit = $start_bit if not defined $end_bit;
 
-    my $sub_bits = substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
-
-    return $sub_bits;
+    return substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
 }
 
 sub hex2bin {
     my $hex = shift;
-    return unpack("B8", pack("C", hex $hex));
+    return unpack("B8", pack("C", hex $hex)) if length($hex) == 2;
+    return '';
 }
 
 sub convert_unit {
     my ($value, $unit, $type) = @_;
     my $new_value = $value;
 
-    given (lc($unit)) {
-        when ('pct') {
-            $new_value = 'n/a';
-            $new_value = $value / 2 unless ($value == 255);
+    if (lc($unit) eq 'pct') {
+        $new_value = 'n/a';
+        $new_value = $value / 2 unless ($value == 255);
+    } elsif (lc($unit) eq 'deg c') {
+        $new_value = 'n/a';
+        if ($type eq 'uint8') {
+            $new_value = $value - 40 unless ($value == 255);
+        } elsif ($type eq 'uint16') {
+            $new_value = round($value * 0.03125 - 273, 0.1) unless ($value == 65535);
         }
-        when ('deg c') {
-            $new_value = 'n/a';
-            given ($type) {
-                when ('uint8')  { $new_value = $value - 40 unless ($value == 255); }
-                when ('uint16') { $new_value = int(($value * 0.03125 - 273) * 10) / 10 unless ($value == 65535); }
+    } elsif (lc($unit) eq 'v') {
+        $new_value = 'n/a';
+        if ($type eq 'uint8') {
+            $new_value = $value unless ($value == 255);
+        } elsif ($type eq 'uint16') {
+            $new_value = round($value * 0.05, 0.1) unless ($value == 65535);
+        }
+    } elsif (lc($unit) eq 'a') {
+        $new_value = 'n/a';
+        if ($type eq 'uint8') {
+            $new_value = $value;
+        } elsif ($type eq 'uint16') {
+            $new_value = round($value * 0.05 - 1600, 0.1) unless ($value == 65535);
+        } elsif ($type eq 'uint32') {
+            $new_value = round($value * 0.001 - 2000000, 0.01) unless $value == 4294967295;
+        }
+    } elsif (lc($unit) eq 'hz') {
+        if ($type eq 'uint8') {
+            $new_value = $value;
+        } elsif ($type eq 'uint16') {
+            $new_value = round($value / 128, 0.1);
+        }
+    } elsif (lc($unit) eq 'sec') {
+        if ($type eq 'uint8') {
+            if ($value > 240 && $value < 251) {
+                $new_value = (($value - 240) + 4) * 60;
             }
+        } elsif ($type eq 'uint16') {
+            $new_value = $value * 2;
         }
-        when ("v") {
-            $new_value = 'n/a';
-            given ($type) {
-                when ('uint8')  { $new_value = $value unless ($value == 255); }
-                when ('uint16') { $new_value = int(($value * 0.05) * 10) / 10 unless ($value == 65535); }
-            }
-        }
-        when ("a") {
-            $new_value = 'n/a';
-            given ($type) {
-                when ('uint8')  { $new_value = $value; }
-                when ('uint16') { $new_value = int(($value * 0.05 - 1600) * 10) / 10 unless ($value == 65535); }
-                when ('uint32') { $new_value = int(($value * 0.001 - 2000000) * 100) / 100 unless $value == 4294967295; }
-            }
-        }
-        when ("hz") {
-            given ($type) {
-                when ('uint8')  { $new_value = $value; }
-                when ('uint16') { $new_value = int(($value / 128) * 10) / 10; }
-            }
-        }
-        when ("sec") {
-            given ($type) {
-                when ('uint8') {
-                    if ($value > 240 && $value < 251) {
-                        $new_value = (($value - 240) + 4) * 60;
-                    }
-                }
-                when ('uint16') { $new_value = $value * 2; }
-            }
-        }
-        when ("bitmap") {
-            $new_value = sprintf('%08b', $value);
-        }
+    } elsif (lc($unit) eq 'bitmap') {
+        $new_value = sprintf('%08b', $value);
     }
 
     return $new_value;
+}
+
+sub round {
+    my ($value, $precision) = @_;
+    return int($value / $precision + 0.5) * $precision;
 }
 
 sub tempC2F {
@@ -281,17 +307,25 @@ sub log_to_temp_file {
     my ($dgn) = @_;
 
     # Read the file to check if the DGN is already logged
-    open my $fh, '<', $undefined_dgns_file;
-    while (my $line = <$fh>) {
-        chomp $line;
-        return if $line eq $dgn;  # DGN already logged, exit the subroutine
+    if (-e $undefined_dgns_file) {
+        open my $fh, '<', $undefined_dgns_file or do {
+            log_to_journald("Failed to open log file for reading undefined DGN $dgn: $!");
+            return;
+        };
+        while (my $line = <$fh>) {
+            chomp $line;
+            if ($line eq $dgn) {
+                close $fh;
+                return;  # DGN already logged, exit the subroutine
+            }
+        }
+        close $fh;
     }
-    close $fh;
 
     # If not already logged, append the DGN to the file
-    open $fh, '>>', $undefined_dgns_file or do {
-        log_to_journald("Failed to open log file for undefined DGN $dgn: $!");
-        die "Cannot open undefined DGN log file: $!";
+    open my $fh, '>>', $undefined_dgns_file or do {
+        log_to_journald("Failed to open log file for appending undefined DGN $dgn: $!");
+        return;
     };
     print $fh "$dgn\n";
     close $fh;
@@ -316,9 +350,14 @@ sub systemd_notify {
     my ($state) = @_;
     my $socket_path = $ENV{NOTIFY_SOCKET} // return;
 
-    socket(my $socket, PF_UNIX, SOCK_DGRAM, 0) or die "socket: $!";
+    socket(my $socket, PF_UNIX, SOCK_DGRAM, 0) or do {
+        log_to_journald("Failed to create UNIX socket: $!");
+        return;
+    };
     my $dest = sockaddr_un($socket_path);
-    send($socket, $state, 0, $dest) or die "send: $!";
+    send($socket, $state, 0, $dest) or do {
+        log_to_journald("Failed to send systemd notification: $!");
+    };
     close($socket);
 }
 
