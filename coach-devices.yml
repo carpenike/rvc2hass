@@ -160,18 +160,26 @@
       device_class: sensor
       device_type: sensor
 
+# Dimmable Lights
 1FEDA:
-  50:
-    - ha_name: light_a
-      friendly_name: Light A
-      state_topic: "homeassistant/light/light_a/state"
+  30:
+    - ha_name:  master_bath_ceiling_light
+      friendly_name: Master Bathroom Ceiling Light
+      state_topic: "homeassistant/light/master_bath_ceiling_light/state"
       value_template: "{{ value_json['operating status (brightness)'] }}"
       device_class: light
       device_type: light
-  51:
-    - ha_name: light_b
-      friendly_name: Light B
-      state_topic: "homeassistant/light/light_b/state"
+  31:
+    - ha_name:  master_bath_lav_light
+      friendly_name: Master Bathroom Lavatory Light
+      state_topic: "homeassistant/light/master_bath_lav_light/state"
+      value_template: "{{ value_json['operating status (brightness)'] }}"
+      device_class: light
+      device_type: light
+  32:
+    - ha_name:  master_bath_accent_light
+      friendly_name: Master Bathroom Accent Light
+      state_topic: "homeassistant/light/master_bath_accent_light/state"
       value_template: "{{ value_json['operating status (brightness)'] }}"
       device_class: light
       device_type: light
