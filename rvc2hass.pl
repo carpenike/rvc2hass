@@ -97,6 +97,7 @@ foreach my $dgn (keys %$lookup) {
         foreach my $config (@$configs) {
             my $command_topic = $config->{command_topic};  # If command_topic is defined
             if ($command_topic) {
+                log_to_journald("Subscribing to command topic: $command_topic for device: $config->{ha_name}");
                 $mqtt->subscribe($command_topic => sub {
                     my ($topic, $message) = @_;
                     log_to_journald("Received command on topic $topic: $message");
@@ -104,11 +105,13 @@ foreach my $dgn (keys %$lookup) {
                     process_command($config, $command_message);
                     log_to_journald("Processed command on topic $topic for device $config->{ha_name}");
                 });
-                log_to_journald("Subscribed to MQTT command topic: $command_topic for device $config->{ha_name}");
+            } else {
+                log_to_journald("No command_topic found for device: $config->{ha_name}");
             }
         }
     }
 }
+
 
 sub process_packet {
     my @parts = @_;
