@@ -94,14 +94,21 @@ sub process_packet {
     my $result = decode($dgn, $data_bytes);
 
     if ($result) {
-        my $instance = $result->{'instance'};
+        my $instance = $result->{'instance'} // 'default';  # Use 'default' if instance is not found
 
         if (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{$instance}) {
             my $configs = $lookup->{$dgn}->{$instance};
             foreach my $config (@$configs) {
                 publish_mqtt($config, $result);
             }
+        } elsif (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{default}) {
+            # Use 'default' if no specific instance is found
+            my $configs = $lookup->{$dgn}->{default};
+            foreach my $config (@$configs) {
+                publish_mqtt($config, $result);
+            }
         } else {
+            log_to_journald("No matching config found for DGN $dgn and instance $instance");
             log_to_temp_file($dgn);
         }
     } else {
@@ -187,6 +194,9 @@ sub decode {
             $result{"$name definition"} = $value_def;
         }
     }
+
+    # Ensure the instance is captured if defined
+    $result{instance} = $result{instance} // undef;
 
     return \%result;
 }
