@@ -68,6 +68,9 @@ threads->create(sub {
 # Open CAN bus data stream
 open my $file, 'candump -ta can0 |' or die "Cannot start candump: $!\n";
 
+# Notify systemd of successful startup
+systemd_notify("READY=1");
+
 while (my $line = <$file>) {
     chomp $line;
     my @parts = split ' ', $line;
@@ -138,48 +141,135 @@ sub decode {
         return;
     }
 
-    try {
-        # Process each parameter based on the decoder's specifications
-        foreach my $param (@{$decoder->{parameters}}) {
-            my $bytes = get_bytes($data, $param->{byte});  # Adjusted to handle byte ranges
-            my $value = $bytes;
+    $result{dgn} = $dgn;
+    $result{data} = $data;
+    $result{name} = $decoder->{name} || "UNKNOWN-$dgn";
 
-            # Handle bit-level extraction if specified
-            if (defined $param->{bit}) {
-                my $bit_range = $param->{bit};
-                my ($start_bit, $end_bit) = split('-', $bit_range);
-                $value = extract_bits($value, $start_bit, $end_bit);
-            }
+    my @parameters;
+    push(@parameters, @{$decoders->{$decoder->{alias}}->{parameters}}) if ($decoder->{alias});
+    push(@parameters, @{$decoder->{parameters}}) if ($decoder->{parameters});
 
-            # Convert the value to the appropriate type (e.g., integer, hex)
-            $result{$param->{name}} = hex($value);  # Example conversion, adjust as needed
+    foreach my $parameter (@parameters) {
+        my $name = $parameter->{name};
+        my $type = $parameter->{type} // 'uint';
+        my $unit = $parameter->{unit};
+        my $values = $parameter->{values};
+
+        my $bytes = get_bytes($data, $parameter->{byte});
+        my $value = hex($bytes);
+
+        if (defined $parameter->{bit}) {
+            my $bits = get_bits($bytes, $parameter->{bit});
+            $value = oct('0b' . $bits);
         }
-        return \%result;
+
+        if (defined $unit) {
+            $value = convert_unit($value, $unit, $type);
+        }
+
+        $result{$name} = $value;
+
+        if (defined $unit && lc($unit) eq 'deg c') {
+            $result{$name . " F"} = tempC2F($value);
+        }
+
+        if ($values) {
+            my $value_def = 'undefined';
+            $value_def = $values->{$value} if ($values->{$value});
+            $result{"$name definition"} = $value_def;
+        }
     }
-    catch {
-        log_to_journald("Error decoding DGN $dgn: $_");
-        return undef;  # Return undef on error
-    }
+
+    return %result;
 }
 
 sub get_bytes {
     my ($data, $byterange) = @_;
 
     my ($start_byte, $end_byte) = split(/-/, $byterange);
-    $end_byte = $start_byte if !defined $end_byte;  # If no range, end_byte is the same as start_byte
+    $end_byte = $start_byte if !defined $end_byte;
+    my $sub_bytes = substr($data, $start_byte * 2, ($end_byte - $start_byte + 1) * 2);
 
-    my $byte_str = substr($data, $start_byte * 2, ($end_byte - $start_byte + 1) * 2);  # Extract the byte(s)
+    my $bytes = join '', reverse split /(..)/, $sub_bytes;
 
-    # Swap the order of bytes if a range is requested (LSB first)
-    $byte_str = join '', reverse split(/(..)/, $byte_str) if $start_byte != $end_byte;
-
-    return $byte_str;
+    return $bytes;
 }
 
-sub extract_bits {
-    my ($value, $start_bit, $end_bit) = @_;
-    my $bits = unpack('B*', pack('H*', $value));  # Convert hex to binary
-    return substr($bits, $start_bit, $end_bit - $start_bit + 1);
+sub get_bits {
+    my ($bytes, $bitrange) = @_;
+    my $bits = hex2bin($bytes);
+
+    my ($start_bit, $end_bit) = split(/-/, $bitrange);
+    $end_bit = $start_bit if !defined $end_bit;
+
+    my $sub_bits = substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
+
+    return $sub_bits;
+}
+
+sub hex2bin {
+    my $hex = shift;
+    return unpack("B8", pack("C", hex $hex));
+}
+
+sub convert_unit {
+    my ($value, $unit, $type) = @_;
+    my $new_value = $value;
+
+    given (lc($unit)) {
+        when ('pct') {
+            $new_value = 'n/a';
+            $new_value = $value / 2 unless ($value == 255);
+        }
+        when ('deg c') {
+            $new_value = 'n/a';
+            given ($type) {
+                when ('uint8')  { $new_value = $value - 40 unless ($value == 255); }
+                when ('uint16') { $new_value = nearest(.1, $value * 0.03125 - 273) unless ($value == 65535); }
+            }
+        }
+        when ("v") {
+            $new_value = 'n/a';
+            given ($type) {
+                when ('uint8')  { $new_value = $value unless ($value == 255); }
+                when ('uint16') { $new_value = nearest(.1, $value * 0.05) unless ($value == 65535); }
+            }
+        }
+        when ("a") {
+            $new_value = 'n/a';
+            given ($type) {
+                when ('uint8')  { $new_value = $value; }
+                when ('uint16') { $new_value = nearest(.1, $value * 0.05 - 1600) unless ($value == 65535); }
+                when ('uint32') { $new_value = nearest(.01, $value * 0.001 - 2000000) unless $value == 4294967295; }
+            }
+        }
+        when ("hz") {
+            given ($type) {
+                when ('uint8')  { $new_value = $value; }
+                when ('uint16') { $new_value = nearest(.1, $value / 128); }
+            }
+        }
+        when ("sec") {
+            given ($type) {
+                when ('uint8') {
+                    if ($value > 240 && $value < 251) {
+                        $new_value = (($value - 240) + 4) * 60;
+                    }
+                }
+                when ('uint16') { $new_value = $value * 2; }
+            }
+        }
+        when ("bitmap") {
+            $new_value = sprintf('%08b', $value);
+        }
+    }
+
+    return $new_value;
+}
+
+sub tempC2F {
+    my ($tempC) = @_;
+    return int((($tempC * 9 / 5) + 32) * 10) / 10;
 }
 
 sub log_to_temp_file {
