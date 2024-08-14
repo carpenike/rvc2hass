@@ -12,7 +12,6 @@ use threads;
 use Time::HiRes qw(sleep);
 use File::Basename;
 use Sys::Syslog qw(:standard :macros);
-use Math::Round qw(nearest);  # Import nearest function
 
 # Pre-start checks
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV));
@@ -235,29 +234,29 @@ sub convert_unit {
         if ($type eq 'uint8') {
             $new_value = $value - 40 unless ($value == 255);
         } elsif ($type eq 'uint16') {
-            $new_value = nearest(0.1, $value * 0.03125 - 273) unless ($value == 65535);
+            $new_value = round($value * 0.03125 - 273, 0.1) unless ($value == 65535);
         }
     } elsif (lc($unit) eq 'v') {
         $new_value = 'n/a';
         if ($type eq 'uint8') {
             $new_value = $value unless ($value == 255);
         } elsif ($type eq 'uint16') {
-            $new_value = nearest(0.1, $value * 0.05) unless ($value == 65535);
+            $new_value = round($value * 0.05, 0.1) unless ($value == 65535);
         }
     } elsif (lc($unit) eq 'a') {
         $new_value = 'n/a';
         if ($type eq 'uint8') {
             $new_value = $value;
         } elsif ($type eq 'uint16') {
-            $new_value = nearest(0.1, $value * 0.05 - 1600) unless ($value == 65535);
+            $new_value = round($value * 0.05 - 1600, 0.1) unless ($value == 65535);
         } elsif ($type eq 'uint32') {
-            $new_value = nearest(0.01, $value * 0.001 - 2000000) unless $value == 4294967295;
+            $new_value = round($value * 0.001 - 2000000, 0.01) unless $value == 4294967295;
         }
     } elsif (lc($unit) eq 'hz') {
         if ($type eq 'uint8') {
             $new_value = $value;
         } elsif ($type eq 'uint16') {
-            $new_value = nearest(0.1, $value / 128);
+            $new_value = round($value / 128, 0.1);
         }
     } elsif (lc($unit) eq 'sec') {
         if ($type eq 'uint8') {
@@ -272,6 +271,12 @@ sub convert_unit {
     }
 
     return $new_value;
+}
+
+# Custom rounding function
+sub round {
+    my ($value, $precision) = @_;
+    return int($value / $precision + 0.5) * $precision;
 }
 
 sub tempC2F {
