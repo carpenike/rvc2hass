@@ -90,6 +90,55 @@ A systemd service file for managing the script as a service on Linux systems.
       device_type: light
 ```
 
+## MQTT Entries from Dimmable Light Status:
+
+Topic: homeassistant/light/master_bath_ceiling_light/state
+
+```json
+{
+  "load status definition": "undefined",
+  "data": "1E7CC6FCFF0404FF",
+  "last command": 4,
+  "overcurrent status": 3,
+  "enable status definition": "undefined",
+  "interlock status": 0,
+  "override status": 3,
+  "interlock status definition": "undefined",
+  "last command definition": "stop",
+  "load status": 1,
+  "instance": 30,
+  "enable status": 3,
+  "delay/duration": 255,
+  "name": "DC_DIMMER_STATUS_3",
+  "operating status (brightness)": 99,
+  "lock status definition": "undefined",
+  "dgn": "1FEDA",
+  "overcurrent status definition": "undefined",
+  "group": "01111100",
+  "lock status": 0,
+  "override status definition": "undefined"
+}
+```
+
+Topic: homeassistant/light/master_bath_ceiling_light/config
+
+```json
+{
+  "value_template": "{{ value_json['operating status (brightness)'] }}",
+  "name": "Master Bathroom Ceiling Light",
+  "state_topic": "homeassistant/light/master_bath_ceiling_light/state",
+  "json_attributes_topic": "homeassistant/light/master_bath_ceiling_light/state",
+  "unique_id": "master_bath_ceiling_light",
+  "device_class": "light"
+}
+```
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
+
+## Credit
+
+Many thanks to the creators of the now unmaintained [CoachProxy](https://coachproxy.com/) for the initial code.
+
+Also thanks to [eRVin](https://myervin.com/) for the guidance on determining where the Entegra devices are on the RV-C network
