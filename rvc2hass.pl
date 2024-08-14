@@ -9,7 +9,7 @@ use Net::MQTT::Simple;
 use Try::Tiny;
 use IO::Socket::UNIX;
 use threads;
-use threads::shared;
+use Thread::Queue;
 use Time::HiRes qw(sleep);
 use File::Basename;
 use Sys::Syslog qw(:standard :macros);
@@ -18,9 +18,6 @@ use Getopt::Long;
 # Command-line options
 my $debug = 0;
 GetOptions("debug" => \$debug);
-
-# Create a mutex for CAN bus access
-my $canbus_mutex :shared;
 
 # Pre-start checks
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV));
@@ -77,6 +74,9 @@ if ($watchdog_interval) {
     })->detach;
 }
 
+# CAN bus mutex for synchronized access
+my $canbus_mutex :shared;
+
 # Open CAN bus data stream
 open my $file, '-|', 'candump', '-ta', 'can0' or die "Cannot start candump: $!\n";
 
@@ -104,6 +104,7 @@ foreach my $dgn (keys %$lookup) {
                     process_command($config, $command_message);
                     log_to_journald("Processed command on topic $topic for device $config->{ha_name}");
                 });
+                log_to_journald("Subscribed to MQTT command topic: $command_topic for device $config->{ha_name}");
             }
         }
     }
@@ -150,7 +151,7 @@ sub process_packet {
 
 sub handle_dimmable_light {
     my ($config, $result) = @_;
-    
+
     # Extract and calculate brightness and command state
     my $brightness = $result->{'operating status (brightness)'};
     my $command = ($brightness == 100) ? 'on' : ($brightness > 0) ? 'dim' : 'off';
@@ -158,7 +159,7 @@ sub handle_dimmable_light {
     # Add these calculated values to the result hash to be passed to publish_mqtt
     $result->{'calculated_brightness'} = $brightness;
     $result->{'calculated_command'} = $command;
-    
+
     # Call the publish_mqtt function with the updated result
     publish_mqtt($config, $result);
 }
@@ -188,7 +189,7 @@ sub publish_mqtt {
     my %state_message;
     $state_message{brightness} = $result->{'calculated_brightness'} if exists $result->{'calculated_brightness'};
     $state_message{command} = $result->{'calculated_command'} if exists $result->{'calculated_command'};
-    
+
     # Merge with existing result data
     my $state_json = encode_json({ %$result, %state_message });
     $mqtt->retain($state_topic, $state_json);
