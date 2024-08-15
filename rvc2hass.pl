@@ -182,11 +182,20 @@ sub publish_mqtt {
     my %config_message = (
         name => $friendly_name,
         state_topic => $state_topic,
+        command_topic => $command_topic,
         value_template => $config->{value_template},
         device_class => $config->{device_class},  # Include device_class if applicable
         unique_id => $ha_name,  # Ensure unique ID for the device
-        json_attributes_topic => $state_topic
+        json_attributes_topic => $state_topic,
     );
+
+    # If the device is a light, include brightness settings
+    if ($config->{device_type} eq 'light') {
+        $config_message{brightness} = JSON::true;  # Ensure brightness control
+        $config_message{brightness_scale} = 100;  # Set brightness scale to 100
+        $config_message{payload_on} = "ON";  # Set payload for turning on
+        $config_message{payload_off} = "OFF";  # Set payload for turning off
+    }
 
     my $config_json = encode_json(\%config_message);
     $mqtt->retain("homeassistant/$config->{device_type}/$ha_name/config", $config_json);
@@ -200,6 +209,7 @@ sub publish_mqtt {
     my $state_json = encode_json({ %$result, %state_message });
     $mqtt->retain($state_topic, $state_json);
 }
+
 
 sub process_command {
     my ($config, $command_message) = @_;
