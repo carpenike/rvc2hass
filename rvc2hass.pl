@@ -176,60 +176,39 @@ sub publish_mqtt {
     my $ha_name = $config->{ha_name};
     my $friendly_name = $config->{friendly_name};
     my $state_topic = $config->{state_topic};
-    my $command_topic = $config->{command_topic};  # Ensure this is defined
+    my $command_topic = $config->{command_topic};  # If command_topic is defined
 
-    # Base MQTT configuration message
+    # Prepare the MQTT configuration message
     my %config_message = (
         name => $friendly_name,
         state_topic => $state_topic,
         command_topic => $command_topic,
-        unique_id => $ha_name,
-        device => {
-            identifiers => [$ha_name],
-            name => $friendly_name,
-            manufacturer => "Your Manufacturer",
-            model => "Your Model",
-        },
+        value_template => $config->{value_template},
+        device_class => $config->{device_class},  # Include device_class if applicable
+        unique_id => $ha_name,  # Ensure unique ID for the device
+        json_attributes_topic => $state_topic,
     );
 
-    # Add device-specific configurations
+    # If the device is a light, include brightness settings
     if ($config->{device_type} eq 'light') {
-        # Add light-specific configurations
-        $config_message{payload_on} = "ON";
-        $config_message{payload_off} = "OFF";
-        $config_message{brightness} = JSON::true;
-        $config_message{brightness_scale} = 255;
-    } elsif ($config->{device_type} eq 'switch') {
-        # Add switch-specific configurations
-        $config_message{payload_on} = "ON";
-        $config_message{payload_off} = "OFF";
-        $config_message{value_template} = $config->{value_template};
-    } elsif ($config->{device_type} eq 'sensor') {
-        # Add sensor-specific configurations
-        $config_message{value_template} = $config->{value_template};
-        $config_message{device_class} = $config->{device_class} if $config->{device_class};
-        $config_message{unit_of_measurement} = $config->{unit_of_measurement} if $config->{unit_of_measurement};
+        $config_message{brightness} = JSON::true;  # Ensure brightness control
+        $config_message{brightness_scale} = 100;  # Set brightness scale to 100
+        $config_message{payload_on} = "ON";  # Set payload for turning on
+        $config_message{payload_off} = "OFF";  # Set payload for turning off
     }
 
-    # Convert the configuration to JSON and publish it
     my $config_json = encode_json(\%config_message);
     $mqtt->retain("homeassistant/$config->{device_type}/$ha_name/config", $config_json);
 
-    # Prepare and publish the state message based on the device type
+    # Prepare the state message
     my %state_message;
-    if ($config->{device_type} eq 'light') {
-        $state_message{state} = $result->{'state'} if exists $result->{'state'};
-        $state_message{brightness} = $result->{'brightness'} if exists $result->{'brightness'};
-    } elsif ($config->{device_type} eq 'switch') {
-        $state_message{state} = $result->{'state'} if exists $result->{'state'};
-    } elsif ($config->{device_type} eq 'sensor') {
-        $state_message{value} = $result->{$config->{value_template_key}} if exists $result->{$config->{value_template_key}};
-    }
+    $state_message{brightness} = $result->{'calculated_brightness'} if exists $result->{'calculated_brightness'};
+    $state_message{command} = $result->{'calculated_command'} if exists $result->{'calculated_command'};
 
-    my $state_json = encode_json(\%state_message);
+    # Merge with existing result data
+    my $state_json = encode_json({ %$result, %state_message });
     $mqtt->retain($state_topic, $state_json);
 }
-
 
 
 sub process_command {
