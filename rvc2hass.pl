@@ -198,7 +198,7 @@ sub publish_mqtt {
     }
 
     my $config_json = encode_json(\%config_message);
-    $mqtt->retain("rvc/$config->{device_type}/$ha_name/config", $config_json);
+    $mqtt->retain("homeassistant/$config->{device_type}/$ha_name/config", $config_json);
 
     # Prepare the state message
     my %state_message;
