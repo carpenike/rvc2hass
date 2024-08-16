@@ -186,6 +186,7 @@ sub start_watchdog {
             if ($mqtt_success) {
                 # Notify systemd that the service is still alive only if MQTT operations were successful
                 systemd_notify("WATCHDOG=1");
+                log_to_journald("Systemd watchdog notified.");
             } else {
                 log_to_journald("MQTT operation failed. Not notifying systemd. Watchdog may terminate the service.");
             }
