@@ -36,6 +36,7 @@ my $retry_delay = 5;  # seconds
 # MQTT initialization with retries
 log_to_journald("Starting MQTT initialization...");
 my $mqtt;
+my $connected = 0;  # Flag to track successful connection
 for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
     log_to_journald("MQTT connection attempt $attempt...");
     try {
@@ -55,24 +56,20 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
 
         # If we reach this point, assume the connection is successful
         log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
-        last;  # Exit the loop if the connection is successful
+        $connected = 1;  # Set the flag to indicate success
     }
     catch {
         # Handle connection errors
         log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
         $mqtt = undef;  # Reset $mqtt on failure
         sleep($retry_delay) if $attempt < $max_retries;  # Sleep before the next attempt
-
-        # If this is the last attempt, die
-        if ($attempt == $max_retries) {
-            log_to_journald("Failed to connect to MQTT broker after $max_retries attempts. Exiting.");
-            die "Failed to connect to MQTT broker after $max_retries attempts.";
-        }
     };
+
+    last if $connected;  # Exit the loop if the connection is successful
 }
 
-# Only continue if $mqtt is defined
-unless (defined $mqtt) {
+# Only continue if $mqtt is defined and connected
+unless ($connected) {
     log_to_journald("MQTT connection failed after $max_retries attempts. Exiting.");
     die "MQTT connection failed; cannot proceed.";
 }
