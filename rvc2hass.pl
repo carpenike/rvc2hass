@@ -140,7 +140,7 @@ sub start_watchdog {
             my $mqtt_success = 0;  # Flag to check if MQTT operations were successful
 
             try {
-                # Subscribe to the heartbeat check topic
+                # Subscribe to the heartbeat topic for each loop iteration
                 my $heartbeat_topic = "test/heartbeat";
                 my $heartbeat_received;
                 $mqtt->subscribe($heartbeat_topic => sub {
@@ -153,7 +153,7 @@ sub start_watchdog {
                 $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
 
                 # Wait for the confirmation message
-                for (my $wait = 0; $wait < 10; $wait++) {  # Increase wait time
+                for (my $wait = 0; $wait < 10; $wait++) {
                     $mqtt->tick();  # Process incoming messages
                     if ($heartbeat_received && $heartbeat_received eq "Heartbeat message from watchdog") {
                         log_to_journald("Heartbeat confirmation received.");
