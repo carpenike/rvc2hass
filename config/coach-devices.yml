@@ -168,7 +168,7 @@
       friendly_name: Master Bathroom Ceiling Light
       state_topic: "homeassistant/light/master_bath_ceiling_light/state"
       command_topic: "homeassistant/light/master_bath_ceiling_light/set"
-      #value_template: "{{ value_json['operating status (brightness)'] }}"
+      value_template: "{{ value_json.state }}"
       device_class: light
       device_type: light
       brightness_state_topic: "homeassistant/light/master_bath_ceiling_light/state"
