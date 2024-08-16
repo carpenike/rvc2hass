@@ -36,17 +36,14 @@ my $retry_delay = 5;  # seconds
 
 # MQTT initialization with retries
 my $mqtt;
-
 for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
     try {
-        if ($mqtt_username && $mqtt_password) {
-            # Use the username and password for connection
-            $mqtt = Net::MQTT::Simple->new($mqtt_host . ':' . $mqtt_port);
-            $mqtt->login($mqtt_username, $mqtt_password);
-        } else {
-            # Connect without authentication
-            $mqtt = Net::MQTT::Simple->new($mqtt_host . ':' . $mqtt_port);
-        }
+        my $connection_string = "$mqtt_host:$mqtt_port";
+        
+        # Create the MQTT client with a specific client ID
+        $mqtt = Net::MQTT::Simple->new($connection_string);
+        $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
+        $mqtt->set_client_id($mqtt_clientid);  # Set the client ID
 
         # Test the connection by attempting to publish to a known topic
         $mqtt->publish("test/connection", "MQTT connection successful");
@@ -65,7 +62,6 @@ unless (defined $mqtt) {
     log_to_journald("Failed to connect to MQTT broker after $max_retries attempts.");
     die "Failed to connect to MQTT broker after $max_retries attempts.";  # Exit the script
 }
-
 
 # Systemd watchdog initialization
 my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
