@@ -172,29 +172,45 @@ sub publish_mqtt {
         name => $friendly_name,
         state_topic => $state_topic,
         command_topic => $command_topic,
-        brightness_state_topic => $state_topic,
-        brightness_command_topic => $command_topic,
-        brightness_command_template => '{{ value }}',
-        brightness_value_template => '{{ value_json.brightness }}',
         value_template => '{{ value_json.state }}',
         device_class => $config->{device_class},  # Include device_class if applicable
         unique_id => $ha_name,  # Ensure unique ID for the device
         json_attributes_topic => $state_topic,
-        brightness => JSON::true,
-        brightness_scale => 255,
         payload_on => "ON",
         payload_off => "OFF"
     );
+
+    # If the device is a light, include brightness settings
+    if ($config->{device_type} eq 'light') {
+        $config_message{brightness} = JSON::true;
+        $config_message{brightness_scale} = 255;
+        $config_message{brightness_state_topic} = $state_topic;
+        $config_message{brightness_command_topic} = $command_topic;
+        $config_message{brightness_command_template} = '{{ value }}';
+        $config_message{brightness_value_template} = '{{ value_json.brightness }}';
+    }
 
     # Publish the configuration message to the /config topic
     my $config_json = encode_json(\%config_message);
     $mqtt->retain("homeassistant/$config->{device_type}/$ha_name/config", $config_json);
 
+    # Determine the correct state based on brightness for lights, or use ON/OFF for switches
+    my $calculated_state;
+    if ($config->{device_type} eq 'light') {
+        $calculated_state = ($result->{'calculated_brightness'} && $result->{'calculated_brightness'} > 0) ? 'ON' : 'OFF';
+    } elsif ($config->{device_type} eq 'switch') {
+        $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
+    }
+
     # Prepare the state message
     my %state_message = (
-        state => $result->{'calculated_command'} // 'OFF',
-        brightness => $result->{'calculated_brightness'} // 0
+        state => $calculated_state
     );
+
+    # Add brightness to the state message if it's a light
+    if ($config->{device_type} eq 'light') {
+        $state_message{brightness} = $result->{'calculated_brightness'} // 0;
+    }
 
     # Publish the state message to the /state topic
     my $state_json = encode_json(\%state_message);
