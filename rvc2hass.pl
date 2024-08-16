@@ -143,10 +143,8 @@ sub start_watchdog {
             try {
                 my $heartbeat_topic = "test/heartbeat";
 
-                # Unsubscribe first to avoid duplicate or stale subscriptions
+                # Unsubscribe and resubscribe to ensure fresh subscription each cycle
                 $mqtt->unsubscribe($heartbeat_topic);
-
-                # Ensure subscription to the heartbeat topic at the start of each loop
                 $mqtt->subscribe($heartbeat_topic => sub {
                     my ($topic, $message) = @_;
                     log_to_journald("Received heartbeat on $heartbeat_topic: $message");
