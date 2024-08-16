@@ -165,7 +165,7 @@ sub publish_mqtt {
     my $ha_name = $config->{ha_name};
     my $friendly_name = $config->{friendly_name};
     my $state_topic = $config->{state_topic};
-    my $command_topic = $config->{command_topic};  # If command_topic is defined
+    my $command_topic = $config->{command_topic};
 
     # Prepare the MQTT configuration message
     my %config_message = (
@@ -173,49 +173,37 @@ sub publish_mqtt {
         state_topic => $state_topic,
         command_topic => $command_topic,
         value_template => $config->{value_template},
-        device_class => $config->{device_class},  # Include device_class if applicable
-        unique_id => $ha_name,  # Ensure unique ID for the device
+        device_class => $config->{device_class},
+        unique_id => $ha_name,
         json_attributes_topic => $state_topic,
     );
 
-    # If the device is a light, include brightness settings
+    # If the device is a light, include brightness settings and state logic
     if ($config->{device_type} eq 'light') {
-        # Use the brightness value directly from the CAN bus, assuming it ranges from 0 to 255
-        my $brightness = $result->{'operating status (brightness)'};
+        my $brightness = $result->{'operating status (brightness)'} || 0;  # Default to 0 if not set
+        my $state = $brightness > 0 ? "ON" : "OFF";
 
-        my $command = ($brightness == 255) ? 'ON' : ($brightness > 0) ? 'ON' : 'OFF';
-
-        # Add these calculated values to the result hash to be passed to publish_mqtt
-        $result->{'calculated_brightness'} = $brightness;
-        $result->{'calculated_command'} = $command;
-
-        # Include brightness settings in the MQTT configuration message
         $config_message{brightness} = JSON::true;
-        $config_message{brightness_scale} = 255;  # Default to 255
-        $config_message{payload_on} = $config->{payload_on} || "ON";
-        $config_message{payload_off} = $config->{payload_off} || "OFF";
-        $config_message{brightness_state_topic} = $config->{brightness_state_topic} || $state_topic;
-        $config_message{brightness_command_topic} = $config->{brightness_command_topic} || $command_topic;
-        $config_message{brightness_value_template} = $config->{brightness_value_template};
-        $config_message{brightness_command_template} = $config->{brightness_command_template};
+        $config_message{brightness_scale} = 255;
+        $config_message{payload_on} = "ON";
+        $config_message{payload_off} = "OFF";
+        $config_message{brightness_state_topic} = $state_topic;
+        $config_message{brightness_command_topic} = $command_topic;
+        $config_message{brightness_value_template} = "{{ value_json.brightness }}";
+        $config_message{brightness_command_template} = "{{ value }}";
+
+        my %state_message = (
+            state => $state,
+            brightness => $brightness,
+        );
+
+        my $state_json = encode_json(\%state_message);
+        $mqtt->retain($state_topic, $state_json);
     }
 
     my $config_json = encode_json(\%config_message);
     $mqtt->retain("homeassistant/$config->{device_type}/$ha_name/config", $config_json);
-
-    # Prepare the state message
-    my %state_message = ();
-    if ($config->{device_type} eq 'light') {
-        $state_message{brightness} = $result->{'calculated_brightness'} if exists $result->{'calculated_brightness'};
-    }
-    $state_message{state} = $result->{'calculated_command'} if exists $result->{'calculated_command'};
-
-    # Merge with existing result data
-    my $state_json = encode_json({ %$result, %state_message });
-    $mqtt->retain($state_topic, $state_json);
 }
-
-
 
 sub decode {
     my ($dgn, $data) = @_;
