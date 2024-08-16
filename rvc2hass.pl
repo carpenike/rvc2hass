@@ -70,7 +70,6 @@ while (my $line = <$file>) {
 }
 close $file;
 
-# Subroutine to initialize MQTT with retries
 sub initialize_mqtt {
     my $mqtt;
     for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
@@ -105,7 +104,7 @@ sub initialize_mqtt {
 
             if ($message_received && $message_received eq "MQTT startup successful") {
                 log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
-                return $mqtt;  # Successful connection, return the $mqtt object
+                return $mqtt;  # Successful connection, return the $mqtt object immediately
             } else {
                 log_to_journald("Failed to receive confirmation message on attempt $attempt.");
                 $mqtt = undef;  # Reset $mqtt to ensure it is not used if the connection fails
