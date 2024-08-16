@@ -57,7 +57,7 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         });
 
         # Publish a test heartbeat message to the topic
-        $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
+        $mqtt->publish($heartbeat_topic, "Heartbeat message on startup");
 
         # Wait for the message to be received (increased sleep time)
         for (my $wait = 0; $wait < 10; $wait++) {
@@ -66,7 +66,7 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
             sleep(2);  # Wait longer for the message to arrive
         }
 
-        if ($message_received && $message_received eq "Heartbeat message from watchdog") {
+        if ($message_received && $message_received eq "Heartbeat message on startup") {
             log_to_journald("Successfully confirmed heartbeat message on attempt $attempt.");
             last;  # Successful connection, exit the loop
         } else {
