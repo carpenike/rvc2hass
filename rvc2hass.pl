@@ -47,7 +47,14 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         log_to_journald("MQTT login successful.");
 
         # Test the connection by attempting to publish to a known topic
-        $mqtt->publish("test/connection", "MQTT connection successful");
+        eval {
+            $mqtt->publish("test/connection", "MQTT connection successful");
+        };
+        if ($@) {
+            log_to_journald("Failed to publish test message: $@");
+            die "MQTT publish failed";  # Force the catch block to trigger
+        }
+
         log_to_journald("Test message published to MQTT broker.");
 
         # If publish is successful, the connection is good
