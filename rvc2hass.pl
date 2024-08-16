@@ -54,18 +54,24 @@ my $retry_delay = 5;  # seconds
 
 for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
     try {
-        if ($mqtt_username && $mqtt_password) {
-            $mqtt = Net::MQTT::Simple->new("$mqtt_host:$mqtt_port", $mqtt_username, $mqtt_password);
+        # Use the username and password if provided
+        if ($ENV{MQTT_USERNAME} && $ENV{MQTT_PASSWORD}) {
+            $mqtt = Net::MQTT::Simple->new("$ENV{MQTT_USERNAME}:$ENV{MQTT_PASSWORD}\@$mqtt_host:$mqtt_port");
         } else {
             $mqtt = Net::MQTT::Simple->new("$mqtt_host:$mqtt_port");
         }
-        last;  # Exit the loop if connection is successful
+        last if defined $mqtt;  # Exit the loop if connection is successful
     }
     catch {
         log_to_journald("Attempting to reconnect to MQTT: Attempt $attempt");
         sleep($retry_delay) if $attempt < $max_retries;
         log_to_journald("Failed to connect to MQTT after $max_retries attempts") if $attempt == $max_retries;
     }
+}
+
+# Check if the MQTT connection was successful before trying to subscribe
+unless (defined $mqtt) {
+    die "Failed to connect to MQTT broker after $max_retries attempts.";
 }
 
 # Systemd watchdog initialization
