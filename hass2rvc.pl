@@ -31,11 +31,12 @@ my $retry_delay = 5;  # seconds
 my $mqtt;
 for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
     try {
-        my $connection_string = $mqtt_username && $mqtt_password 
-            ? "$mqtt_username:$mqtt_password\@$mqtt_host:$mqtt_port" 
-            : "$mqtt_host:$mqtt_port";
-        
-        $mqtt = Net::MQTT::Simple->new($connection_string);
+        if ($mqtt_username && $mqtt_password) {
+            $mqtt = Net::MQTT::Simple->new("$mqtt_host:$mqtt_port");
+            $mqtt->login($mqtt_username, $mqtt_password);
+        } else {
+            $mqtt = Net::MQTT::Simple->new("$mqtt_host:$mqtt_port");
+        }
         last;  # Exit the loop if connection is successful
     }
     catch {
