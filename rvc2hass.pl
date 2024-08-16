@@ -132,7 +132,7 @@ if ($watchdog_interval) {
                 if ($heartbeat_received) {
                     log_to_journald("Heartbeat confirmation received. Deleting the heartbeat message.");
                     # Publish an empty message with retain=false to delete the retained message
-                    $mqtt->publish($test_topic, "", 0, 1);  # Retain flag set to 0
+                    $mqtt->publish($test_topic, "", 0);  # The retain flag set to 0 as the third argument
                 } else {
                     log_to_journald("Failed to receive heartbeat confirmation. Attempting to reconnect to MQTT.");
                     reconnect_mqtt();  # Attempt to reconnect to MQTT
