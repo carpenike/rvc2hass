@@ -23,8 +23,12 @@ GetOptions("debug" => \$debug);
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV));
 
 # Configuration
-my $mqtt_host = "localhost";
+my $mqtt_host = "192.168.50.20";
 my $mqtt_port = 1883;  # Define the MQTT port
+
+# Retrieve MQTT credentials from environment variables
+my $mqtt_username = $ENV{'MQTT_USERNAME'};
+my $mqtt_password = $ENV{'MQTT_PASSWORD'};
 
 # Create a temporary directory for undefined DGNs
 my $temp_dir = tempdir(CLEANUP => 1);
@@ -50,7 +54,11 @@ my $retry_delay = 5;  # seconds
 
 for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
     try {
-        $mqtt = Net::MQTT::Simple->new("$mqtt_host:$mqtt_port");
+        if ($mqtt_username && $mqtt_password) {
+            $mqtt = Net::MQTT::Simple->new("$mqtt_host:$mqtt_port", $mqtt_username, $mqtt_password);
+        } else {
+            $mqtt = Net::MQTT::Simple->new("$mqtt_host:$mqtt_port");
+        }
         last;  # Exit the loop if connection is successful
     }
     catch {
