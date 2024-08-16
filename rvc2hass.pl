@@ -145,7 +145,7 @@ sub start_watchdog {
 
                 # Unsubscribe first to avoid duplicate or stale subscriptions
                 $mqtt->unsubscribe($heartbeat_topic);
-                
+
                 # Ensure subscription to the heartbeat topic at the start of each loop
                 $mqtt->subscribe($heartbeat_topic => sub {
                     my ($topic, $message) = @_;
@@ -158,8 +158,8 @@ sub start_watchdog {
                 # Publish a heartbeat message to MQTT
                 $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
                 log_to_journald("Published heartbeat message to MQTT");
-
-                # Wait for the confirmation message with a longer wait period
+                sleep(2);
+                # Wait for the confirmation message
                 for (my $wait = 0; $wait < 15; $wait++) {  # Increased wait time to 15 seconds
                     $mqtt->tick();  # Process incoming messages
                     if ($heartbeat_received) {
