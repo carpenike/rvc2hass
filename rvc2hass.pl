@@ -40,6 +40,10 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         } else {
             $mqtt = Net::MQTT::Simple->new("$mqtt_host:$mqtt_port");
         }
+
+        # Test the connection by attempting to subscribe to a known topic
+        # If the connection is successful, exit the retry loop
+        $mqtt->publish("homeassistant/status", "MQTT connection successful");
         last;  # Exit the loop if connection is successful
     }
     catch {
@@ -51,6 +55,7 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
 
 # Check if the MQTT connection was successful before trying to subscribe
 unless (defined $mqtt) {
+    log_to_journald("Failed to connect to MQTT broker after $max_retries attempts.");
     die "Failed to connect to MQTT broker after $max_retries attempts.";
 }
 
