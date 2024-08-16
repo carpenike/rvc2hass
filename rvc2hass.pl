@@ -47,11 +47,9 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
         log_to_journald("MQTT login successful.");
 
-        # Declare the variable outside the try block so it's accessible later
-        my $message_received;
-
         # Subscribe to the heartbeat topic
         my $heartbeat_topic = "test/heartbeat";
+        my $message_received;
         $mqtt->subscribe($heartbeat_topic => sub {
             my ($topic, $message) = @_;
             log_to_journald("Received message on $heartbeat_topic: $message");
@@ -61,11 +59,11 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         # Publish a test heartbeat message to the topic
         $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
 
-        # Wait for the message to be received
+        # Wait for the message to be received (increased sleep time)
         for (my $wait = 0; $wait < 10; $wait++) {
             last if $message_received;
             $mqtt->tick();  # Process incoming messages
-            sleep(1);  # Wait a bit longer for the message to arrive
+            sleep(2);  # Wait longer for the message to arrive
         }
 
         if ($message_received && $message_received eq "Heartbeat message from watchdog") {
@@ -103,28 +101,27 @@ my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0
 
 if ($watchdog_interval) {
     threads->create(sub {
+        # Subscribe to the heartbeat topic once outside the loop
+        my $heartbeat_topic = "test/heartbeat";
+        my $message_received;
+        $mqtt->subscribe($heartbeat_topic => sub {
+            my ($topic, $message) = @_;
+            log_to_journald("Received heartbeat on $heartbeat_topic: $message");
+            $message_received = $message;
+        });
+
         while (1) {
             my $mqtt_success = 0;  # Flag to check if MQTT operations were successful
 
             try {
-                my $message_received;
-
                 # Publish a heartbeat message to MQTT
-                $mqtt->publish("test/heartbeat", "Heartbeat message from watchdog");
-
-                # Subscribe to the heartbeat check topic
-                my $heartbeat_topic = "test/heartbeat";
-                $mqtt->subscribe($heartbeat_topic => sub {
-                    my ($topic, $message) = @_;
-                    log_to_journald("Received heartbeat on $heartbeat_topic: $message");
-                    $message_received = $message;
-                });
+                $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
 
                 # Wait for the confirmation message
                 for (my $wait = 0; $wait < 10; $wait++) {  # Wait a bit longer
                     last if $message_received;
                     $mqtt->tick();
-                    sleep(1);
+                    sleep(2);
                 }
 
                 if ($message_received && $message_received eq "Heartbeat message from watchdog") {
