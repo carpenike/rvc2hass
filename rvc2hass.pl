@@ -134,13 +134,11 @@ sub initialize_mqtt {
 }
 
 # Subroutine to start the watchdog thread
+# Subroutine to start the watchdog thread
 sub start_watchdog {
-    my ($mqtt_ref, $interval) = @_;
-
     my $watchdog_thread = threads->create(sub {
         while (1) {
             my $mqtt_success = 0;  # Flag to check if MQTT operations were successful
-            my $mqtt = $$mqtt_ref;
 
             try {
                 # Ensure subscription to the heartbeat topic at the start of each loop
@@ -154,6 +152,7 @@ sub start_watchdog {
 
                 # Publish a heartbeat message to MQTT
                 $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
+                log_to_journald("Published heartbeat message to MQTT");
 
                 # Wait for the confirmation message
                 for (my $wait = 0; $wait < 10; $wait++) {
@@ -168,9 +167,9 @@ sub start_watchdog {
 
                 unless ($mqtt_success) {
                     log_to_journald("Failed to receive heartbeat confirmation. Attempting to reconnect to MQTT.");
-                    reconnect_mqtt($mqtt_ref);  # Attempt to reconnect to MQTT
+                    reconnect_mqtt(\$mqtt);  # Attempt to reconnect to MQTT
 
-                    unless ($$mqtt_ref) {
+                    unless (defined $mqtt) {
                         log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
                         die "MQTT connection lost and could not be re-established. Exiting.";
                     }
@@ -178,23 +177,24 @@ sub start_watchdog {
             }
             catch {
                 log_to_journald("Failed to publish heartbeat in watchdog: $_. Reconnecting to MQTT.");
-                reconnect_mqtt($mqtt_ref);  # Attempt to reconnect to MQTT
+                reconnect_mqtt(\$mqtt);  # Attempt to reconnect to MQTT
 
-                unless ($$mqtt_ref) {
+                unless (defined $mqtt) {
                     log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
                     die "MQTT connection lost and could not be re-established. Exiting.";
                 }
             };
 
-            if ($mqtt_success) {
-                # Notify systemd that the service is still alive only if MQTT operations were successful
+            # Always notify systemd that the service is still alive
+            try {
                 systemd_notify("WATCHDOG=1");
-                log_to_journald("Systemd watchdog notified.");
-            } else {
-                log_to_journald("MQTT operation failed. Not notifying systemd. Watchdog may terminate the service.");
+                log_to_journald("Systemd watchdog notified successfully.");
             }
+            catch {
+                log_to_journald("Failed to notify systemd watchdog: $_");
+            };
 
-            sleep($interval);  # Wait before the next check
+            sleep($watchdog_interval);  # Wait before the next check
         }
     });
 
@@ -203,7 +203,7 @@ sub start_watchdog {
 
 # Reconnect function to handle MQTT reconnections
 sub reconnect_mqtt {
-    my ($mqtt_ref) = @_;
+    my $mqtt_ref = shift;
     my $success = 0;
     for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         try {
@@ -222,7 +222,7 @@ sub reconnect_mqtt {
         }
         catch {
             log_to_journald("Reconnection attempt $attempt failed: $_");
-            $$mqtt_ref = undef;  # Ensure $$mqtt_ref is undefined on failure
+            $$mqtt_ref = undef;  # Ensure $mqtt is undefined on failure
             sleep($retry_delay);  # Wait before retrying
         };
     }
