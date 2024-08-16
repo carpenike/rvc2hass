@@ -171,6 +171,8 @@ sub start_watchdog {
                     sleep(1);  # Wait a bit longer for the message to arrive
                 }
 
+                log_to_journald("Exited the wait loop");
+
                 if (!$mqtt_success) {
                     log_to_journald("Failed to receive heartbeat confirmation. Exiting.");
                     die "Error in watchdog loop: Failed to receive heartbeat confirmation. Exiting.";
