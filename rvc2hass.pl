@@ -99,12 +99,14 @@ die "MQTT connection failed; cannot proceed." unless defined $mqtt;
 my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
 my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it
 
-# Start watchdog thread if watchdog is enabled
 if ($watchdog_interval) {
     threads->create(sub {
         while (1) {
             try {
-                # Subscribe to the heartbeat check topic
+                # Publish a heartbeat message to MQTT
+                $mqtt->publish("test/heartbeat", "Heartbeat message from watchdog");
+
+                # Subscribe to the heartbeat check topic after publishing the message
                 my $heartbeat_topic = "test/heartbeat_check";
                 my $heartbeat_received;
                 $mqtt->subscribe($heartbeat_topic => sub {
@@ -113,11 +115,8 @@ if ($watchdog_interval) {
                     $heartbeat_received = $message;
                 });
 
-                # Publish a heartbeat message to MQTT
-                $mqtt->publish("test/heartbeat", "Heartbeat message from watchdog");
-
                 # Wait for the confirmation message
-                for (my $wait = 0; $wait < 5; $wait++) {
+                for (my $wait = 0; $wait < 10; $wait++) {  # Increased wait time
                     last if $heartbeat_received;
                     $mqtt->tick();
                     sleep(1);
