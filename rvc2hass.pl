@@ -172,9 +172,8 @@ sub publish_mqtt {
         name => $friendly_name,
         state_topic => $state_topic,
         command_topic => $command_topic,
-        value_template => $config->{value_template},
-        device_class => $config->{device_class},  # Include device_class if applicable
-        unique_id => $ha_name,  # Ensure unique ID for the device
+        device_class => $config->{device_class},
+        unique_id => $ha_name,
         json_attributes_topic => $state_topic,
     );
 
@@ -193,13 +192,15 @@ sub publish_mqtt {
 
     # Prepare the state message
     my %state_message = ();
+
     if ($config->{device_type} eq 'light') {
+        # Home Assistant expects "ON" or "OFF" in the "state" field
+        $state_message{state} = $result->{'calculated_command'} eq 'on' ? 'ON' : 'OFF';
         $state_message{brightness} = $result->{'calculated_brightness'} if exists $result->{'calculated_brightness'};
     }
-    $state_message{state} = $result->{'calculated_command'} if exists $result->{'calculated_command'};
 
-    # Merge with existing result data
-    my $state_json = encode_json({ %$result, %state_message });
+    # Merge with existing result data if needed
+    my $state_json = encode_json(\%state_message);
     $mqtt->retain($state_topic, $state_json);
 }
 
