@@ -48,9 +48,6 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
             $mqtt = Net::MQTT::Simple->new($mqtt_host . ':' . $mqtt_port);
         }
 
-        # Set the client ID
-        $mqtt->set_client_id($mqtt_clientid);
-
         # Test the connection by attempting to publish to a known topic
         $mqtt->publish("test/connection", "MQTT connection successful");
         log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
@@ -66,7 +63,7 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
 # Check if the MQTT connection was successful before trying to subscribe
 unless (defined $mqtt) {
     log_to_journald("Failed to connect to MQTT broker after $max_retries attempts.");
-    die "Failed to connect to MQTT broker after $max_retries attempts.";
+    die "Failed to connect to MQTT broker after $max_retries attempts.";  # Exit the script
 }
 
 
