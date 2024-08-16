@@ -105,9 +105,6 @@ if ($watchdog_interval) {
             my $mqtt_success = 0;  # Flag to check if MQTT operations were successful
 
             try {
-                # Publish a heartbeat message to MQTT
-                $mqtt->publish("test/heartbeat", "Heartbeat message from watchdog");
-
                 # Subscribe to the heartbeat check topic
                 my $heartbeat_topic = "test/heartbeat_check";
                 my $heartbeat_received;
@@ -116,6 +113,9 @@ if ($watchdog_interval) {
                     log_to_journald("Received heartbeat on $heartbeat_topic: $message");
                     $heartbeat_received = $message;
                 });
+
+                # Publish a heartbeat message to MQTT
+                $mqtt->publish("test/heartbeat", "Heartbeat message from watchdog");
 
                 # Wait for the confirmation message
                 for (my $wait = 0; $wait < 10; $wait++) {  # Wait a bit longer
@@ -127,6 +127,9 @@ if ($watchdog_interval) {
                 if ($heartbeat_received && $heartbeat_received eq "Heartbeat message from watchdog") {
                     log_to_journald("Heartbeat confirmation received.");
                     $mqtt_success = 1;  # Mark MQTT operations as successful
+
+                    # Echo the heartbeat back to the check topic
+                    $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
                 } else {
                     log_to_journald("Failed to receive heartbeat confirmation. Attempting to reconnect to MQTT.");
                     reconnect_mqtt();  # Attempt to reconnect to MQTT
@@ -158,7 +161,6 @@ if ($watchdog_interval) {
         }
     })->detach;
 }
-
 
 # Get the directory of the currently running script
 my $script_dir = dirname(__FILE__);
