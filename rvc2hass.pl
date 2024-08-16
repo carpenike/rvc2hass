@@ -47,30 +47,30 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
         log_to_journald("MQTT login successful.");
 
-        # Subscribe to the heartbeat topic
-        my $heartbeat_topic = "test/heartbeat";
-        my $message_received;
-        $mqtt->subscribe($heartbeat_topic => sub {
+        # Subscribe to the startup check topic
+        my $startup_topic = "test/connection_check";
+        my $startup_message_received;
+        $mqtt->subscribe($startup_topic => sub {
             my ($topic, $message) = @_;
-            log_to_journald("Received message on $heartbeat_topic: $message");
-            $message_received = $message;
+            log_to_journald("Received message on $startup_topic: $message");
+            $startup_message_received = $message;
         });
 
-        # Publish a test heartbeat message to the topic
-        $mqtt->publish($heartbeat_topic, "Heartbeat message on startup");
+        # Publish a startup message to the topic
+        $mqtt->publish($startup_topic, "MQTT startup successful");
 
-        # Wait for the message to be received (increased sleep time)
+        # Wait for the message to be received
         for (my $wait = 0; $wait < 10; $wait++) {
-            last if $message_received;
+            last if $startup_message_received;
             $mqtt->tick();  # Process incoming messages
             sleep(2);  # Wait longer for the message to arrive
         }
 
-        if ($message_received && $message_received eq "Heartbeat message on startup") {
-            log_to_journald("Successfully confirmed heartbeat message on attempt $attempt.");
+        if ($startup_message_received && $startup_message_received eq "MQTT startup successful") {
+            log_to_journald("Successfully confirmed startup message on attempt $attempt.");
             last;  # Successful connection, exit the loop
         } else {
-            log_to_journald("Failed to receive heartbeat message on attempt $attempt.");
+            log_to_journald("Failed to receive startup confirmation message on attempt $attempt.");
             $mqtt = undef;  # Reset $mqtt to ensure it is not used if the connection fails
         }
     }
@@ -103,11 +103,11 @@ if ($watchdog_interval) {
     threads->create(sub {
         # Subscribe to the heartbeat topic once outside the loop
         my $heartbeat_topic = "test/heartbeat";
-        my $message_received;
+        my $heartbeat_message_received;
         $mqtt->subscribe($heartbeat_topic => sub {
             my ($topic, $message) = @_;
             log_to_journald("Received heartbeat on $heartbeat_topic: $message");
-            $message_received = $message;
+            $heartbeat_message_received = $message;
         });
 
         while (1) {
@@ -119,12 +119,12 @@ if ($watchdog_interval) {
 
                 # Wait for the confirmation message
                 for (my $wait = 0; $wait < 10; $wait++) {  # Wait a bit longer
-                    last if $message_received;
+                    last if $heartbeat_message_received;
                     $mqtt->tick();
                     sleep(2);
                 }
 
-                if ($message_received && $message_received eq "Heartbeat message from watchdog") {
+                if ($heartbeat_message_received && $heartbeat_message_received eq "Heartbeat message from watchdog") {
                     log_to_journald("Heartbeat confirmation received.");
                     $mqtt_success = 1;  # Mark MQTT operations as successful
                 } else {
@@ -389,7 +389,7 @@ sub get_bytes {
     my ($data, $byterange) = @_;
 
     my ($start_byte, $end_byte) = split(/-/, $byterange);
-    $end_byte = $start_byte if !defined $end_byte;
+    $end_byte = $start_byte if not defined $end_byte;
     my $length = ($end_byte - $start_byte + 1) * 2;
     
     return '' if $start_byte * 2 >= length($data);
