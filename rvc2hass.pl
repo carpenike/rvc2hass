@@ -185,6 +185,7 @@ close $file;
 
 # Reconnect function to handle MQTT reconnections
 sub reconnect_mqtt {
+    my $success = 0;
     for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         try {
             log_to_journald("Reconnection attempt $attempt...");
@@ -192,12 +193,13 @@ sub reconnect_mqtt {
             log_to_journald("Attempting to reconnect to $mqtt_host:$mqtt_port...");
             $mqtt = Net::MQTT::Simple->new($connection_string);
             $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
-            
+
             # Attempt to publish a test message to ensure the connection works
             $mqtt->publish("test/connection", "MQTT reconnection successful");
             
             log_to_journald("Successfully reconnected to MQTT broker on attempt $attempt.");
-            return;  # Exit the loop upon a successful reconnection
+            $success = 1;
+            last;  # Exit the loop upon a successful reconnection
         }
         catch {
             log_to_journald("Reconnection attempt $attempt failed: $_");
@@ -205,8 +207,10 @@ sub reconnect_mqtt {
             sleep($retry_delay);  # Wait before retrying
         };
     }
-    log_to_journald("Failed to reconnect to MQTT broker after $max_retries attempts. Exiting.");
-    die "Failed to reconnect to MQTT broker.";
+    if (!$success) {
+        log_to_journald("Failed to reconnect to MQTT broker after $max_retries attempts. Exiting.");
+        die "Failed to reconnect to MQTT broker.";
+    }
 }
 
 sub process_packet {
