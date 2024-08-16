@@ -134,7 +134,6 @@ sub initialize_mqtt {
 }
 
 # Subroutine to start the watchdog thread
-# Subroutine to start the watchdog thread
 sub start_watchdog {
     my $watchdog_thread = threads->create(sub {
         while (1) {
@@ -165,33 +164,17 @@ sub start_watchdog {
                     sleep(1);  # Wait a bit longer for the message to arrive
                 }
 
-                unless ($mqtt_success) {
+                if ($mqtt_success) {
+                    systemd_notify("WATCHDOG=1");
+                    log_to_journald("Systemd watchdog notified successfully.");
+                } else {
                     log_to_journald("Failed to receive heartbeat confirmation. Attempting to reconnect to MQTT.");
                     reconnect_mqtt(\$mqtt);  # Attempt to reconnect to MQTT
-
-                    unless (defined $mqtt) {
-                        log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
-                        die "MQTT connection lost and could not be re-established. Exiting.";
-                    }
                 }
             }
             catch {
                 log_to_journald("Failed to publish heartbeat in watchdog: $_. Reconnecting to MQTT.");
                 reconnect_mqtt(\$mqtt);  # Attempt to reconnect to MQTT
-
-                unless (defined $mqtt) {
-                    log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
-                    die "MQTT connection lost and could not be re-established. Exiting.";
-                }
-            };
-
-            # Always notify systemd that the service is still alive
-            try {
-                systemd_notify("WATCHDOG=1");
-                log_to_journald("Systemd watchdog notified successfully.");
-            }
-            catch {
-                log_to_journald("Failed to notify systemd watchdog: $_");
             };
 
             sleep($watchdog_interval);  # Wait before the next check
@@ -203,7 +186,7 @@ sub start_watchdog {
 
 # Reconnect function to handle MQTT reconnections
 sub reconnect_mqtt {
-    my $mqtt_ref = shift;
+    my ($mqtt_ref) = @_;
     my $success = 0;
     for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         try {
@@ -218,6 +201,8 @@ sub reconnect_mqtt {
             
             log_to_journald("Successfully reconnected to MQTT broker on attempt $attempt.");
             $success = 1;
+            systemd_notify("WATCHDOG=1");
+            log_to_journald("Systemd watchdog notified successfully after reconnection.");
             last;  # Exit the loop upon a successful reconnection
         }
         catch {
