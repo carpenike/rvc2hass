@@ -45,15 +45,23 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
 
         # Test the connection by attempting to publish to a known topic
         $mqtt->publish("test/connection", "MQTT connection successful");
-        log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
-
-        # Successful connection, proceed with the rest of the script
-        last;
+        
+        # Verify that the MQTT object is properly connected
+        my $is_connected = eval { $mqtt->ping() };  # Try to ping the broker
+        
+        if ($is_connected) {
+            log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
+            last;  # Successful connection, exit the loop
+        } else {
+            log_to_journald("Failed to ping MQTT broker on attempt $attempt.");
+            $mqtt = undef;  # Reset $mqtt to ensure it is not used if the connection fails
+        }
     }
     catch {
         log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
+        $mqtt = undef;  # Reset $mqtt on failure
         sleep($retry_delay) if $attempt < $max_retries;
-
+        
         # If this is the last attempt, die
         if ($attempt == $max_retries) {
             log_to_journald("Failed to connect to MQTT broker after $max_retries attempts. Exiting.");
@@ -62,9 +70,10 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
     };
 }
 
-# Only continue if $mqtt is defined
+# Only continue if $mqtt is defined and connected
 die "MQTT connection failed; cannot proceed." unless defined $mqtt;
 
+# Remaining script only executes if $mqtt is defined
 # Systemd watchdog initialization
 my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
 my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it
