@@ -180,8 +180,18 @@ sub publish_mqtt {
 
     # If the device is a light, include brightness settings
     if ($config->{device_type} eq 'light') {
+        # Use the brightness value directly from the CAN bus, assuming it ranges from 0 to 255
+        my $brightness = $result->{'operating status (brightness)'};
+
+        my $command = ($brightness == 255) ? 'ON' : ($brightness > 0) ? 'ON' : 'OFF';
+
+        # Add these calculated values to the result hash to be passed to publish_mqtt
+        $result->{'calculated_brightness'} = $brightness;
+        $result->{'calculated_command'} = $command;
+
+        # Include brightness settings in the MQTT configuration message
         $config_message{brightness} = JSON::true;
-        $config_message{brightness_scale} = $config->{brightness_scale} || 100;
+        $config_message{brightness_scale} = 255;  # Default to 255
         $config_message{payload_on} = $config->{payload_on} || "ON";
         $config_message{payload_off} = $config->{payload_off} || "OFF";
         $config_message{brightness_state_topic} = $config->{brightness_state_topic} || $state_topic;
@@ -204,6 +214,7 @@ sub publish_mqtt {
     my $state_json = encode_json({ %$result, %state_message });
     $mqtt->retain($state_topic, $state_json);
 }
+
 
 
 sub decode {
