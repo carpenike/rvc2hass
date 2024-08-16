@@ -38,7 +38,7 @@ $ENV{MQTT_SIMPLE_ALLOW_INSECURE_LOGIN} = 1;  # Allow unencrypted connection with
 my $mqtt = initialize_mqtt();
 
 # Start Watchdog if configured
-start_watchdog($mqtt, $watchdog_interval) if $watchdog_interval;
+start_watchdog(\$mqtt, $watchdog_interval) if $watchdog_interval;
 
 # Get the directory of the currently running script
 my $script_dir = dirname(__FILE__);
@@ -135,12 +135,15 @@ sub initialize_mqtt {
 
 # Subroutine to start the watchdog thread
 sub start_watchdog {
+    my ($mqtt_ref, $interval) = @_;
+
     my $watchdog_thread = threads->create(sub {
         while (1) {
             my $mqtt_success = 0;  # Flag to check if MQTT operations were successful
+            my $mqtt = $$mqtt_ref;
 
             try {
-                # Subscribe to the heartbeat topic for each loop iteration
+                # Ensure subscription to the heartbeat topic at the start of each loop
                 my $heartbeat_topic = "test/heartbeat";
                 my $heartbeat_received;
                 $mqtt->subscribe($heartbeat_topic => sub {
@@ -165,9 +168,9 @@ sub start_watchdog {
 
                 unless ($mqtt_success) {
                     log_to_journald("Failed to receive heartbeat confirmation. Attempting to reconnect to MQTT.");
-                    reconnect_mqtt();  # Attempt to reconnect to MQTT
+                    reconnect_mqtt($mqtt_ref);  # Attempt to reconnect to MQTT
 
-                    unless (defined $mqtt) {
+                    unless ($$mqtt_ref) {
                         log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
                         die "MQTT connection lost and could not be re-established. Exiting.";
                     }
@@ -175,9 +178,9 @@ sub start_watchdog {
             }
             catch {
                 log_to_journald("Failed to publish heartbeat in watchdog: $_. Reconnecting to MQTT.");
-                reconnect_mqtt();  # Attempt to reconnect to MQTT
+                reconnect_mqtt($mqtt_ref);  # Attempt to reconnect to MQTT
 
-                unless (defined $mqtt) {
+                unless ($$mqtt_ref) {
                     log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
                     die "MQTT connection lost and could not be re-established. Exiting.";
                 }
@@ -191,7 +194,7 @@ sub start_watchdog {
                 log_to_journald("MQTT operation failed. Not notifying systemd. Watchdog may terminate the service.");
             }
 
-            sleep($watchdog_interval);  # Wait before the next check
+            sleep($interval);  # Wait before the next check
         }
     });
 
@@ -200,18 +203,18 @@ sub start_watchdog {
 
 # Reconnect function to handle MQTT reconnections
 sub reconnect_mqtt {
-    my ($mqtt) = @_;
+    my ($mqtt_ref) = @_;
     my $success = 0;
     for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         try {
             log_to_journald("Reconnection attempt $attempt...");
             my $connection_string = "$mqtt_host:$mqtt_port";
             log_to_journald("Attempting to reconnect to $mqtt_host:$mqtt_port...");
-            $mqtt = Net::MQTT::Simple->new($connection_string);
-            $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
+            $$mqtt_ref = Net::MQTT::Simple->new($connection_string);
+            $$mqtt_ref->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
 
             # Attempt to publish a test message to ensure the connection works
-            $mqtt->publish("test/connection", "MQTT reconnection successful");
+            $$mqtt_ref->publish("test/connection", "MQTT reconnection successful");
             
             log_to_journald("Successfully reconnected to MQTT broker on attempt $attempt.");
             $success = 1;
@@ -219,7 +222,7 @@ sub reconnect_mqtt {
         }
         catch {
             log_to_journald("Reconnection attempt $attempt failed: $_");
-            $mqtt = undef;  # Ensure $mqtt is undefined on failure
+            $$mqtt_ref = undef;  # Ensure $$mqtt_ref is undefined on failure
             sleep($retry_delay);  # Wait before retrying
         };
     }
