@@ -61,10 +61,6 @@ unless (defined $mqtt) {
     die "Failed to connect to MQTT broker after $max_retries attempts.";  # Exit the script
 }
 
-# Systemd watchdog initialization
-my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
-my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it
-
 # Start watchdog thread if watchdog is enabled
 if ($watchdog_interval) {
     threads->create(sub {
@@ -79,6 +75,12 @@ if ($watchdog_interval) {
             catch {
                 log_to_journald("Failed to publish heartbeat in watchdog. Reconnecting to MQTT.");
                 reconnect_mqtt();  # Attempt to reconnect to MQTT
+
+                # Check if MQTT is still undefined after a reconnect attempt
+                unless (defined $mqtt) {
+                    log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
+                    die "MQTT connection lost and could not be re-established. Exiting.";
+                }
             };
 
             sleep($watchdog_interval);  # Wait before the next check
@@ -86,7 +88,6 @@ if ($watchdog_interval) {
     })->detach;
 }
 
-# Reconnect function to handle MQTT reconnections
 sub reconnect_mqtt {
     for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         try {
