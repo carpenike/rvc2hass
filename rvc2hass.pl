@@ -36,33 +36,25 @@ my $retry_delay = 5;  # seconds
 # MQTT initialization with retries
 my $mqtt;
 for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
-    try {
+    eval {
         my $connection_string = "$mqtt_host:$mqtt_port";
 
         # Attempt to create the MQTT client
         $mqtt = Net::MQTT::Simple->new($connection_string);
         $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
 
-        # Try publishing a test message to verify the connection
+        # Test the connection by attempting to publish to a known topic
         $mqtt->publish("test/connection", "MQTT connection successful");
 
-        # If we reach this point, the connection is successful
+        # If publish succeeds without error, connection is successful
         log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
         last;  # Exit the loop if the connection is successful
-    }
-    catch {
-        if ($_ =~ /connect: Connection refused/) {
-            log_to_journald("Connection refused by MQTT broker. Please check if the broker is running and accessible.");
-        } elsif ($_ =~ /Could not connect/) {
-            log_to_journald("Could not connect to MQTT broker: $_. Check network connectivity and broker status.");
-        } else {
-            log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
-        }
-        $mqtt = undef;  # Reset $mqtt on failure
     };
-
-    # Sleep between retry attempts, but only if there are more attempts remaining
-    sleep($retry_delay) if $attempt < $max_retries;
+    if ($@) {
+        log_to_journald("Failed to connect to MQTT on attempt $attempt: $@");
+        $mqtt = undef;  # Reset $mqtt on failure
+        sleep($retry_delay) if $attempt < $max_retries;  # Sleep before the next attempt
+    }
 }
 
 # Only continue if $mqtt is defined and connected
@@ -70,6 +62,7 @@ unless (defined $mqtt) {
     log_to_journald("MQTT connection failed after $max_retries attempts. Exiting.");
     die "MQTT connection failed; cannot proceed.";
 }
+
 
 # Remaining script only executes if $mqtt is defined
 # Systemd watchdog initialization
