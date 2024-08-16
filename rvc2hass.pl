@@ -38,22 +38,23 @@ my $mqtt;
 for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
     try {
         my $connection_string = "$mqtt_host:$mqtt_port";
-        
-        # Create the MQTT client
+
+        # Attempt to create the MQTT client
         $mqtt = Net::MQTT::Simple->new($connection_string);
         $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
 
-        # Test the connection by attempting to publish to a known topic
+        # Try publishing a test message to verify the connection
         $mqtt->publish("test/connection", "MQTT connection successful");
-        
-        # If we successfully publish the message, consider the connection successful
+
+        # If we reach this point, the connection is successful
         log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
-        last;  # Successful connection, exit the loop
+        last;  # Exit the loop if the connection is successful
     }
     catch {
-        # Capture the specific "Connection refused" error and log a more descriptive message
         if ($_ =~ /connect: Connection refused/) {
             log_to_journald("Connection refused by MQTT broker. Please check if the broker is running and accessible.");
+        } elsif ($_ =~ /Could not connect/) {
+            log_to_journald("Could not connect to MQTT broker: $_. Check network connectivity and broker status.");
         } else {
             log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
         }
@@ -65,7 +66,10 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
 }
 
 # Only continue if $mqtt is defined and connected
-die "MQTT connection failed; cannot proceed." unless defined $mqtt;
+unless (defined $mqtt) {
+    log_to_journald("MQTT connection failed after $max_retries attempts. Exiting.");
+    die "MQTT connection failed; cannot proceed.";
+}
 
 # Remaining script only executes if $mqtt is defined
 # Systemd watchdog initialization
