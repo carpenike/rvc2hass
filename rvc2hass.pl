@@ -141,8 +141,11 @@ sub start_watchdog {
             my $heartbeat_received;
 
             try {
-                # Ensure subscription to the heartbeat topic at the start of each loop
+                # Unsubscribe from the heartbeat topic first to ensure a clean start
                 my $heartbeat_topic = "test/heartbeat";
+                $mqtt->unsubscribe($heartbeat_topic);
+                
+                # Ensure subscription to the heartbeat topic at the start of each loop
                 $heartbeat_received = 0;
                 $mqtt->subscribe($heartbeat_topic => sub {
                     my ($topic, $message) = @_;
@@ -169,7 +172,7 @@ sub start_watchdog {
                     sleep(1);  # Wait a bit longer for the message to arrive
                 }
 
-                unless ($mqtt_success) {
+                if (!$mqtt_success) {
                     log_to_journald("Failed to receive heartbeat confirmation. Exiting.");
                     die "Failed to receive heartbeat confirmation. Exiting.";
                 }
