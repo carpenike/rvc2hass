@@ -105,7 +105,7 @@ sub initialize_mqtt {
 
             if ($message_received && $message_received eq "MQTT startup successful") {
                 log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
-                return $mqtt;  # Successful connection
+                return $mqtt;  # Successful connection, return the $mqtt object
             } else {
                 log_to_journald("Failed to receive confirmation message on attempt $attempt.");
                 $mqtt = undef;  # Reset $mqtt to ensure it is not used if the connection fails
@@ -119,15 +119,11 @@ sub initialize_mqtt {
             }
             $mqtt = undef;  # Reset $mqtt on failure
             sleep($retry_delay) if $attempt < $max_retries;
-            
-            # If this is the last attempt, die
-            if ($attempt == $max_retries) {
-                log_to_journald("Failed to connect to MQTT broker after $max_retries attempts. Exiting.");
-                die "Failed to connect to MQTT broker after $max_retries attempts.";
-            }
         };
     }
-    die "MQTT connection failed; cannot proceed.";
+
+    log_to_journald("Failed to connect to MQTT broker after $max_retries attempts. Exiting.");
+    die "Failed to connect to MQTT broker after $max_retries attempts.";
 }
 
 # Subroutine to start the watchdog thread
