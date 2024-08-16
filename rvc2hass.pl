@@ -34,130 +34,14 @@ my $mqtt_password = $ENV{MQTT_PASSWORD};
 my $max_retries = 5;
 my $retry_delay = 5;  # seconds
 
-# MQTT initialization with retries
-my $mqtt;
-for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
-    try {
-        my $connection_string = "$mqtt_host:$mqtt_port";
-        
-        # Create the MQTT client
-        log_to_journald("Connecting to $mqtt_host:$mqtt_port...");
-        $mqtt = Net::MQTT::Simple->new($connection_string);
-        log_to_journald("MQTT client created.");
-        $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
-        log_to_journald("MQTT login successful.");
+# Initialize MQTT
+my $mqtt = initialize_mqtt();
 
-        # Subscribe to the startup check topic
-        my $startup_topic = "test/connection_check";
-        my $startup_message_received;
-        $mqtt->subscribe($startup_topic => sub {
-            my ($topic, $message) = @_;
-            log_to_journald("Received message on $startup_topic: $message");
-            $startup_message_received = $message;
-        });
-
-        # Publish a startup message to the topic
-        $mqtt->publish($startup_topic, "MQTT startup successful");
-
-        # Wait for the message to be received
-        for (my $wait = 0; $wait < 10; $wait++) {
-            last if $startup_message_received;
-            $mqtt->tick();  # Process incoming messages
-            sleep(2);  # Wait longer for the message to arrive
-        }
-
-        if ($startup_message_received && $startup_message_received eq "MQTT startup successful") {
-            log_to_journald("Successfully confirmed startup message on attempt $attempt.");
-            last;  # Successful connection, exit the loop
-        } else {
-            log_to_journald("Failed to receive startup confirmation message on attempt $attempt.");
-            $mqtt = undef;  # Reset $mqtt to ensure it is not used if the connection fails
-        }
-    }
-    catch {
-        if ($_ =~ /connect: Connection refused/) {
-            log_to_journald("Connection refused by MQTT broker. Please check if the broker is running and accessible.");
-        } else {
-            log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
-        }
-        $mqtt = undef;  # Reset $mqtt on failure
-        sleep($retry_delay) if $attempt < $max_retries;
-        
-        # If this is the last attempt, die
-        if ($attempt == $max_retries) {
-            log_to_journald("Failed to connect to MQTT broker after $max_retries attempts. Exiting.");
-            die "Failed to connect to MQTT broker after $max_retries attempts.";
-        }
-    };
-}
-
-# Only continue if $mqtt is defined and connected
-die "MQTT connection failed; cannot proceed." unless defined $mqtt;
-
-# Remaining script only executes if $mqtt is defined
 # Systemd watchdog initialization
 my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
 my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it
 
-if ($watchdog_interval) {
-    threads->create(sub {
-        # Subscribe to the heartbeat topic once outside the loop
-        my $heartbeat_topic = "test/heartbeat";
-        my $heartbeat_message_received;
-        $mqtt->subscribe($heartbeat_topic => sub {
-            my ($topic, $message) = @_;
-            log_to_journald("Received heartbeat on $heartbeat_topic: $message");
-            $heartbeat_message_received = $message;
-        });
-
-        while (1) {
-            my $mqtt_success = 0;  # Flag to check if MQTT operations were successful
-
-            try {
-                # Publish a heartbeat message to MQTT
-                $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
-
-                # Wait for the confirmation message
-                for (my $wait = 0; $wait < 10; $wait++) {  # Wait a bit longer
-                    last if $heartbeat_message_received;
-                    $mqtt->tick();
-                    sleep(2);
-                }
-
-                if ($heartbeat_message_received && $heartbeat_message_received eq "Heartbeat message from watchdog") {
-                    log_to_journald("Heartbeat confirmation received.");
-                    $mqtt_success = 1;  # Mark MQTT operations as successful
-                } else {
-                    log_to_journald("Failed to receive heartbeat confirmation. Attempting to reconnect to MQTT.");
-                    reconnect_mqtt();  # Attempt to reconnect to MQTT
-
-                    unless (defined $mqtt) {
-                        log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
-                        die "MQTT connection lost and could not be re-established. Exiting.";
-                    }
-                }
-            }
-            catch {
-                log_to_journald("Failed to publish heartbeat in watchdog: $_. Reconnecting to MQTT.");
-                reconnect_mqtt();  # Attempt to reconnect to MQTT
-
-                unless (defined $mqtt) {
-                    log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
-                    die "MQTT connection lost and could not be re-established. Exiting.";
-                }
-            };
-
-            if ($mqtt_success) {
-                # Notify systemd that the service is still alive only if MQTT operations were successful
-                systemd_notify("WATCHDOG=1");
-            } else {
-                log_to_journald("MQTT operation failed. Not notifying systemd. Watchdog may terminate the service.");
-            }
-
-            sleep($watchdog_interval);  # Wait before the next check
-        }
-    })->detach;
-}
+start_watchdog($mqtt, $watchdog_interval) if $watchdog_interval;
 
 # Get the directory of the currently running script
 my $script_dir = dirname(__FILE__);
@@ -189,8 +73,132 @@ while (my $line = <$file>) {
 }
 close $file;
 
+# Subroutine to initialize MQTT with retries
+sub initialize_mqtt {
+    my $mqtt;
+    for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
+        try {
+            my $connection_string = "$mqtt_host:$mqtt_port";
+            
+            # Create the MQTT client
+            log_to_journald("Connecting to $mqtt_host:$mqtt_port...");
+            $mqtt = Net::MQTT::Simple->new($connection_string);
+            log_to_journald("MQTT client created.");
+            $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
+            log_to_journald("MQTT login successful.");
+
+            # Subscribe to the test topic
+            my $test_topic = "test/connection_check";
+            my $message_received;
+            $mqtt->subscribe($test_topic => sub {
+                my ($topic, $message) = @_;
+                log_to_journald("Received message on $test_topic: $message");
+                $message_received = $message;
+            });
+
+            # Publish a test message to the topic
+            $mqtt->publish($test_topic, "MQTT startup successful");
+
+            # Wait for the message to be received
+            for (my $wait = 0; $wait < 5; $wait++) {
+                last if $message_received;
+                $mqtt->tick();  # Process incoming messages
+                sleep(1);
+            }
+
+            if ($message_received && $message_received eq "MQTT startup successful") {
+                log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
+                return $mqtt;  # Successful connection
+            } else {
+                log_to_journald("Failed to receive confirmation message on attempt $attempt.");
+                $mqtt = undef;  # Reset $mqtt to ensure it is not used if the connection fails
+            }
+        }
+        catch {
+            if ($_ =~ /connect: Connection refused/) {
+                log_to_journald("Connection refused by MQTT broker. Please check if the broker is running and accessible.");
+            } else {
+                log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
+            }
+            $mqtt = undef;  # Reset $mqtt on failure
+            sleep($retry_delay) if $attempt < $max_retries;
+            
+            # If this is the last attempt, die
+            if ($attempt == $max_retries) {
+                log_to_journald("Failed to connect to MQTT broker after $max_retries attempts. Exiting.");
+                die "Failed to connect to MQTT broker after $max_retries attempts.";
+            }
+        };
+    }
+    die "MQTT connection failed; cannot proceed.";
+}
+
+# Subroutine to start the watchdog thread
+sub start_watchdog {
+    my ($mqtt, $watchdog_interval) = @_;
+
+    threads->create(sub {
+        while (1) {
+            my $mqtt_success = 0;  # Flag to check if MQTT operations were successful
+
+            try {
+                # Publish a heartbeat message to MQTT
+                $mqtt->publish("test/heartbeat", "Heartbeat message from watchdog");
+
+                # Subscribe to the heartbeat check topic
+                my $heartbeat_topic = "test/heartbeat";
+                my $heartbeat_received;
+                $mqtt->subscribe($heartbeat_topic => sub {
+                    my ($topic, $message) = @_;
+                    log_to_journald("Received heartbeat on $heartbeat_topic: $message");
+                    $heartbeat_received = $message;
+                });
+
+                # Wait for the confirmation message
+                for (my $wait = 0; $wait < 10; $wait++) {  # Wait a bit longer
+                    last if $heartbeat_received;
+                    $mqtt->tick();
+                    sleep(1);
+                }
+
+                if ($heartbeat_received && $heartbeat_received eq "Heartbeat message from watchdog") {
+                    log_to_journald("Heartbeat confirmation received.");
+                    $mqtt_success = 1;  # Mark MQTT operations as successful
+                } else {
+                    log_to_journald("Failed to receive heartbeat confirmation. Attempting to reconnect to MQTT.");
+                    reconnect_mqtt($mqtt);  # Attempt to reconnect to MQTT
+
+                    unless (defined $mqtt) {
+                        log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
+                        die "MQTT connection lost and could not be re-established. Exiting.";
+                    }
+                }
+            }
+            catch {
+                log_to_journald("Failed to publish heartbeat in watchdog: $_. Reconnecting to MQTT.");
+                reconnect_mqtt($mqtt);  # Attempt to reconnect to MQTT
+
+                unless (defined $mqtt) {
+                    log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
+                    die "MQTT connection lost and could not be re-established. Exiting.";
+                }
+            };
+
+            if ($mqtt_success) {
+                # Notify systemd that the service is still alive only if MQTT operations were successful
+                systemd_notify("WATCHDOG=1");
+            } else {
+                log_to_journald("MQTT operation failed. Not notifying systemd. Watchdog may terminate the service.");
+            }
+
+            sleep($watchdog_interval);  # Wait before the next check
+        }
+    })->detach;
+}
+
 # Reconnect function to handle MQTT reconnections
 sub reconnect_mqtt {
+    my ($mqtt) = @_;
     my $success = 0;
     for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         try {
