@@ -30,7 +30,6 @@ my $mqtt_host = $ENV{MQTT_HOST} || "localhost";
 my $mqtt_port = $ENV{MQTT_PORT} || 1883;
 my $mqtt_username = $ENV{MQTT_USERNAME};
 my $mqtt_password = $ENV{MQTT_PASSWORD};
-my $mqtt_clientid = $ENV{MQTT_CLIENTID} || "rvc";
 my $max_retries = 5;
 my $retry_delay = 5;  # seconds
 
@@ -43,7 +42,6 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         # Create the MQTT client with a specific client ID
         $mqtt = Net::MQTT::Simple->new($connection_string);
         $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
-        $mqtt->set_client_id($mqtt_clientid);  # Set the client ID
 
         # Test the connection by attempting to publish to a known topic
         $mqtt->publish("test/connection", "MQTT connection successful");
