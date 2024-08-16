@@ -103,28 +103,31 @@ my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0
 if ($watchdog_interval) {
     threads->create(sub {
         while (1) {
+            my $heartbeat_received;
             try {
                 # Subscribe to the test topic
                 my $test_topic = "test/heartbeat_check";
-                my $heartbeat_received;
+                $heartbeat_received = 0;  # Reset the flag
                 $mqtt->subscribe($test_topic => sub {
                     my ($topic, $message) = @_;
-                    log_to_journald("Received heartbeat on $test_topic: $message");
-                    $heartbeat_received = $message;
+                    if ($message eq "Heartbeat message from watchdog") {
+                        log_to_journald("Received heartbeat on $test_topic: $message");
+                        $heartbeat_received = 1;
+                    }
                 });
 
                 # Publish a heartbeat message to the topic
                 $mqtt->publish($test_topic, "Heartbeat message from watchdog");
 
-                # Wait for the heartbeat message to be received
+                # Wait for the message to be received (increased sleep time)
                 for (my $wait = 0; $wait < 5; $wait++) {
                     last if $heartbeat_received;
                     $mqtt->tick();  # Process incoming messages
                     sleep(1);  # Wait a bit longer for the message to arrive
                 }
 
-                if ($heartbeat_received && $heartbeat_received eq "Heartbeat message from watchdog") {
-                    log_to_journald("Successfully published and received heartbeat message.");
+                if ($heartbeat_received) {
+                    log_to_journald("Heartbeat confirmation received.");
                 } else {
                     log_to_journald("Failed to receive heartbeat confirmation. Attempting to reconnect to MQTT.");
                     reconnect_mqtt();  # Attempt to reconnect to MQTT
