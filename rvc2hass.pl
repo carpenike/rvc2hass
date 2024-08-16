@@ -103,55 +103,49 @@ my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0
 if ($watchdog_interval) {
     threads->create(sub {
         while (1) {
-            my $heartbeat_received;
             try {
-                # Subscribe to the test topic
-                my $test_topic = "test/heartbeat_check";
-                $heartbeat_received = 0;  # Reset the flag
-                log_to_journald("Subscribing to $test_topic for heartbeat check.");
-                $mqtt->subscribe($test_topic => sub {
+                # Subscribe to the heartbeat check topic
+                my $heartbeat_topic = "test/heartbeat_check";
+                my $heartbeat_received;
+                $mqtt->subscribe($heartbeat_topic => sub {
                     my ($topic, $message) = @_;
-                    log_to_journald("Received message on $test_topic: $message");
-                    if ($message eq "Heartbeat message from watchdog") {
-                        $heartbeat_received = 1;
-                    }
+                    log_to_journald("Received heartbeat on $heartbeat_topic: $message");
+                    $heartbeat_received = $message;
                 });
 
-                # Publish a heartbeat message to the topic
-                log_to_journald("Publishing heartbeat message.");
-                $mqtt->publish($test_topic, "Heartbeat message from watchdog");
+                # Publish a heartbeat message to MQTT
+                $mqtt->publish("test/heartbeat", "Heartbeat message from watchdog");
 
-                # Wait for the message to be received (increased sleep time)
-                for (my $wait = 0; $wait < 10; $wait++) {  # Increased from 5 to 10
+                # Wait for the confirmation message
+                for (my $wait = 0; $wait < 5; $wait++) {
                     last if $heartbeat_received;
-                    log_to_journald("Waiting for heartbeat confirmation ($wait)...");
-                    $mqtt->tick();  # Process incoming messages
-                    sleep(1);  # Wait a bit longer for the message to arrive
+                    $mqtt->tick();
+                    sleep(1);
                 }
 
-                if ($heartbeat_received) {
+                if ($heartbeat_received && $heartbeat_received eq "Heartbeat message from watchdog") {
                     log_to_journald("Heartbeat confirmation received. Deleting the heartbeat message.");
-                    # Publish an empty message with retain=false to delete the retained message
-                    $mqtt->publish($test_topic, "", 0);  # The retain flag set to 0 as the third argument
+                    
+                    # Delete the heartbeat message by publishing an empty payload
+                    $mqtt->retain($heartbeat_topic, "");
+                    log_to_journald("Heartbeat message deleted from $heartbeat_topic.");
+
+                    # Notify systemd that the service is still alive
+                    systemd_notify("WATCHDOG=1");
                 } else {
                     log_to_journald("Failed to receive heartbeat confirmation. Attempting to reconnect to MQTT.");
                     reconnect_mqtt();  # Attempt to reconnect to MQTT
 
-                    # Check if MQTT is still undefined after a reconnect attempt
                     unless (defined $mqtt) {
                         log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
                         die "MQTT connection lost and could not be re-established. Exiting.";
                     }
                 }
-
-                # Notify systemd that the service is still alive
-                systemd_notify("WATCHDOG=1");
             }
             catch {
                 log_to_journald("Failed to publish heartbeat in watchdog: $_. Reconnecting to MQTT.");
                 reconnect_mqtt();  # Attempt to reconnect to MQTT
 
-                # Check if MQTT is still undefined after a reconnect attempt
                 unless (defined $mqtt) {
                     log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
                     die "MQTT connection lost and could not be re-established. Exiting.";
