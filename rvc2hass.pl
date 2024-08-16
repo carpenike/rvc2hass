@@ -38,22 +38,23 @@ my $mqtt;
 for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
     try {
         my $connection_string = "$mqtt_host:$mqtt_port";
-
+        
         # Create the MQTT client
         $mqtt = Net::MQTT::Simple->new($connection_string);
         $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
 
         # Test the connection by attempting to publish to a known topic
         $mqtt->publish("test/connection", "MQTT connection successful");
-
+        
         # Verify that the MQTT object is properly connected
         my $is_connected = eval { $mqtt->ping() };  # Try to ping the broker
-
+        
         if ($is_connected) {
             log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
             last;  # Successful connection, exit the loop
         } else {
             log_to_journald("Failed to ping MQTT broker on attempt $attempt.");
+            $mqtt = undef;  # Reset $mqtt to ensure it is not used if the connection fails
         }
     }
     catch {
@@ -63,7 +64,7 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         } else {
             log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
         }
-        
+        $mqtt = undef;  # Reset $mqtt on failure
         sleep($retry_delay) if $attempt < $max_retries;
         
         # If this is the last attempt, die
