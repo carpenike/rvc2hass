@@ -49,6 +49,10 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
         log_to_journald("MQTT login successful.") if $mqtt_username && $mqtt_password;
 
+        # Test the connection by attempting to publish to a known topic
+        $mqtt->publish("test/connection", "MQTT connection successful");
+        log_to_journald("Test message published to MQTT broker.");
+
         # If we reach this point, assume the connection is successful
         log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
         last;  # Exit the loop if the connection is successful
@@ -58,6 +62,12 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
         $mqtt = undef;  # Reset $mqtt on failure
         sleep($retry_delay) if $attempt < $max_retries;  # Sleep before the next attempt
+
+        # If this is the last attempt, die
+        if ($attempt == $max_retries) {
+            log_to_journald("Failed to connect to MQTT broker after $max_retries attempts. Exiting.");
+            die "Failed to connect to MQTT broker after $max_retries attempts.";
+        }
     };
 }
 
