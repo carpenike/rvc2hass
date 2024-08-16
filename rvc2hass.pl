@@ -143,23 +143,23 @@ sub start_watchdog {
                 # Ensure subscription to the heartbeat topic at the start of each loop
                 my $heartbeat_topic = "test/heartbeat";
                 my $heartbeat_received;
-                $mqtt->subscribe($heartbeat_topic => sub {
+                $$mqtt->subscribe($heartbeat_topic => sub {
                     my ($topic, $message) = @_;
                     log_to_journald("Received heartbeat on $heartbeat_topic: $message");
                     $heartbeat_received = $message;
                 });
 
                 # Publish a heartbeat message to MQTT
-                $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
+                $$mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
                 log_to_journald("Published heartbeat message to MQTT");
 
                 # Wait for the confirmation message
                 for (my $wait = 0; $wait < 10; $wait++) {
-                    $mqtt->tick();  # Process incoming messages
+                    $$mqtt->tick();  # Process incoming messages
                     if ($heartbeat_received && $heartbeat_received eq "Heartbeat message from watchdog") {
                         log_to_journald("Heartbeat confirmation received.");
                         $mqtt_success = 1;  # Mark MQTT operations as successful
-                        last;  # Exit the loop early if confirmation is received
+                        break;  # Exit the loop early if confirmation is received
                     }
                     sleep(1);  # Wait a bit longer for the message to arrive
                 }
@@ -168,13 +168,13 @@ sub start_watchdog {
                     systemd_notify("WATCHDOG=1");
                     log_to_journald("Systemd watchdog notified successfully.");
                 } else {
-                    log_to_journald("Failed to receive heartbeat confirmation. Attempting to reconnect to MQTT.");
-                    reconnect_mqtt(\$mqtt);  # Attempt to reconnect to MQTT
+                    log_to_journald("Failed to receive heartbeat confirmation, exiting.");
+                    die "MQTT watchdog failed to receive heartbeat confirmation.";
                 }
             }
             catch {
-                log_to_journald("Failed to publish heartbeat in watchdog: $_. Reconnecting to MQTT.");
-                reconnect_mqtt(\$mqtt);  # Attempt to reconnect to MQTT
+                log_to_journald("Failed to publish heartbeat in watchdog: $_.");
+                die "MQTT watchdog loop encountered an error and is exiting.";
             };
 
             sleep($watchdog_interval);  # Wait before the next check
@@ -182,39 +182,6 @@ sub start_watchdog {
     });
 
     $watchdog_thread->detach();
-}
-
-# Reconnect function to handle MQTT reconnections
-sub reconnect_mqtt {
-    my ($mqtt_ref) = @_;
-    my $success = 0;
-    for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
-        try {
-            log_to_journald("Reconnection attempt $attempt...");
-            my $connection_string = "$mqtt_host:$mqtt_port";
-            log_to_journald("Attempting to reconnect to $mqtt_host:$mqtt_port...");
-            $$mqtt_ref = Net::MQTT::Simple->new($connection_string);
-            $$mqtt_ref->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
-
-            # Attempt to publish a test message to ensure the connection works
-            $$mqtt_ref->publish("test/connection", "MQTT reconnection successful");
-            
-            log_to_journald("Successfully reconnected to MQTT broker on attempt $attempt.");
-            $success = 1;
-            systemd_notify("WATCHDOG=1");
-            log_to_journald("Systemd watchdog notified successfully after reconnection.");
-            last;  # Exit the loop upon a successful reconnection
-        }
-        catch {
-            log_to_journald("Reconnection attempt $attempt failed: $_");
-            $$mqtt_ref = undef;  # Ensure $mqtt is undefined on failure
-            sleep($retry_delay);  # Wait before retrying
-        };
-    }
-    if (!$success) {
-        log_to_journald("Failed to reconnect to MQTT broker after $max_retries attempts. Exiting.");
-        die "Failed to reconnect to MQTT broker.";
-    }
 }
 
 sub process_packet {
