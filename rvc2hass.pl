@@ -141,6 +141,9 @@ sub start_watchdog {
             my $heartbeat_received;
 
             try {
+                # Reset the heartbeat_received flag at the start of each loop
+                $heartbeat_received = undef;
+
                 # Ensure subscription to the heartbeat topic at the start of each loop
                 my $heartbeat_topic = "test/heartbeat";
                 $mqtt->subscribe($heartbeat_topic => sub {
