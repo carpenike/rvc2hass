@@ -172,19 +172,22 @@ sub publish_mqtt {
         name => $friendly_name,
         state_topic => $state_topic,
         command_topic => $command_topic,
-        device_class => $config->{device_class},
-        unique_id => $ha_name,
+        value_template => $config->{value_template},
+        device_class => $config->{device_class},  # Include device_class if applicable
+        unique_id => $ha_name,  # Ensure unique ID for the device
         json_attributes_topic => $state_topic,
     );
 
     # If the device is a light, include brightness settings
     if ($config->{device_type} eq 'light') {
         $config_message{brightness} = JSON::true;
-        $config_message{brightness_scale} = 100;
-        $config_message{payload_on} = "ON";
-        $config_message{payload_off} = "OFF";
-        $config_message{brightness_state_topic} = $state_topic;
-        $config_message{brightness_command_topic} = $command_topic;
+        $config_message{brightness_scale} = $config->{brightness_scale} || 100;
+        $config_message{payload_on} = $config->{payload_on} || "ON";
+        $config_message{payload_off} = $config->{payload_off} || "OFF";
+        $config_message{brightness_state_topic} = $config->{brightness_state_topic} || $state_topic;
+        $config_message{brightness_command_topic} = $config->{brightness_command_topic} || $command_topic;
+        $config_message{brightness_value_template} = $config->{brightness_value_template};
+        $config_message{brightness_command_template} = $config->{brightness_command_template};
     }
 
     my $config_json = encode_json(\%config_message);
@@ -192,17 +195,16 @@ sub publish_mqtt {
 
     # Prepare the state message
     my %state_message = ();
-
     if ($config->{device_type} eq 'light') {
-        # Home Assistant expects "ON" or "OFF" in the "state" field
-        $state_message{state} = $result->{'calculated_command'} eq 'on' ? 'ON' : 'OFF';
         $state_message{brightness} = $result->{'calculated_brightness'} if exists $result->{'calculated_brightness'};
     }
+    $state_message{state} = $result->{'calculated_command'} if exists $result->{'calculated_command'};
 
-    # Merge with existing result data if needed
-    my $state_json = encode_json(\%state_message);
+    # Merge with existing result data
+    my $state_json = encode_json({ %$result, %state_message });
     $mqtt->retain($state_topic, $state_json);
 }
+
 
 sub decode {
     my ($dgn, $data) = @_;
