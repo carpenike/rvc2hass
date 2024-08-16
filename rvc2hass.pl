@@ -30,6 +30,7 @@ my $mqtt_host = $ENV{MQTT_HOST} || "localhost";
 my $mqtt_port = $ENV{MQTT_PORT} || 1883;
 my $mqtt_username = $ENV{MQTT_USERNAME};
 my $mqtt_password = $ENV{MQTT_PASSWORD};
+my $mqtt_clientid = $ENV{MQTT_CLIENTID} || "rvc";
 my $max_retries = 5;
 my $retry_delay = 5;  # seconds
 
@@ -39,15 +40,20 @@ my $mqtt;
 for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
     try {
         if ($mqtt_username && $mqtt_password) {
-            $mqtt = Net::MQTT::Simple->new("$mqtt_host:$mqtt_port");
+            # Use the username and password for connection
+            $mqtt = Net::MQTT::Simple->new($mqtt_host . ':' . $mqtt_port);
             $mqtt->login($mqtt_username, $mqtt_password);
         } else {
-            $mqtt = Net::MQTT::Simple->new("$mqtt_host:$mqtt_port");
+            # Connect without authentication
+            $mqtt = Net::MQTT::Simple->new($mqtt_host . ':' . $mqtt_port);
         }
 
-        # Test the connection by attempting to subscribe to a known topic
-        # If the connection is successful, exit the retry loop
-        $mqtt->publish("homeassistant/status", "MQTT connection successful");
+        # Set the client ID
+        $mqtt->set_client_id($mqtt_clientid);
+
+        # Test the connection by attempting to publish to a known topic
+        $mqtt->publish("test/connection", "MQTT connection successful");
+        log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
         last;  # Exit the loop if connection is successful
     }
     catch {
@@ -62,6 +68,7 @@ unless (defined $mqtt) {
     log_to_journald("Failed to connect to MQTT broker after $max_retries attempts.");
     die "Failed to connect to MQTT broker after $max_retries attempts.";
 }
+
 
 # Systemd watchdog initialization
 my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
