@@ -63,16 +63,46 @@ unless (defined $mqtt) {
 
 # Systemd watchdog initialization
 my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
-my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;
+my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it
 
 # Start watchdog thread if watchdog is enabled
 if ($watchdog_interval) {
     threads->create(sub {
         while (1) {
-            systemd_notify("WATCHDOG=1");
-            sleep($watchdog_interval);
+            try {
+                # Publish a heartbeat message to MQTT
+                $mqtt->publish("test/heartbeat", "Heartbeat message from watchdog");
+
+                # Notify systemd that the service is still alive
+                systemd_notify("WATCHDOG=1");
+            }
+            catch {
+                log_to_journald("Failed to publish heartbeat in watchdog. Reconnecting to MQTT.");
+                reconnect_mqtt();  # Attempt to reconnect to MQTT
+            }
+
+            sleep($watchdog_interval);  # Wait before the next check
         }
     })->detach;
+}
+
+# Reconnect function to handle MQTT reconnections
+sub reconnect_mqtt {
+    for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
+        try {
+            my $connection_string = "$mqtt_host:$mqtt_port";
+            $mqtt = Net::MQTT::Simple->new($connection_string);
+            $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
+            log_to_journald("Successfully reconnected to MQTT broker on attempt $attempt.");
+            return;
+        }
+        catch {
+            log_to_journald("Reconnection attempt $attempt failed.");
+            sleep($retry_delay);
+        }
+    }
+    log_to_journald("Failed to reconnect to MQTT broker after $max_retries attempts. Exiting.");
+    die "Failed to reconnect to MQTT broker.";
 }
 
 # Get the directory of the currently running script
