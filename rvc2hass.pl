@@ -24,7 +24,7 @@ log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV));
 
 # Configuration
 my $mqtt_host = $ENV{MQTT_HOST} || "localhost";
-my $mqtt_port = $ENV{MQTT_PORT} || 1883;  # Define the MQTT port
+my $mqtt_port = $ENV{MQTT_PORT} || 1883;
 my $mqtt_username = $ENV{MQTT_USERNAME};
 my $mqtt_password = $ENV{MQTT_PASSWORD};
 my $max_retries = 5;
@@ -55,7 +55,7 @@ unless (defined $mqtt) {
 
 # Systemd watchdog initialization
 my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
-my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it
+my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;
 
 # Start watchdog thread if watchdog is enabled
 if ($watchdog_interval) {
@@ -172,19 +172,23 @@ sub publish_mqtt {
 
     # If the device is a light, include brightness settings
     if ($config->{device_type} eq 'light') {
-        $config_message{brightness} = JSON::true;  # Ensure brightness control
-        $config_message{brightness_scale} = 100;  # Set brightness scale to 100
-        $config_message{payload_on} = "ON";  # Set payload for turning on
-        $config_message{payload_off} = "OFF";  # Set payload for turning off
+        $config_message{brightness} = JSON::true;
+        $config_message{brightness_scale} = 100;
+        $config_message{payload_on} = "ON";
+        $config_message{payload_off} = "OFF";
+        $config_message{brightness_state_topic} = $state_topic;
+        $config_message{brightness_command_topic} = $command_topic;
     }
 
     my $config_json = encode_json(\%config_message);
     $mqtt->retain("homeassistant/$config->{device_type}/$ha_name/config", $config_json);
 
     # Prepare the state message
-    my %state_message;
-    $state_message{brightness} = $result->{'calculated_brightness'} if exists $result->{'calculated_brightness'};
-    $state_message{command} = $result->{'calculated_command'} if exists $result->{'calculated_command'};
+    my %state_message = ();
+    if ($config->{device_type} eq 'light') {
+        $state_message{brightness} = $result->{'calculated_brightness'} if exists $result->{'calculated_brightness'};
+    }
+    $state_message{state} = $result->{'calculated_command'} if exists $result->{'calculated_command'};
 
     # Merge with existing result data
     my $state_json = encode_json({ %$result, %state_message });
@@ -195,7 +199,6 @@ sub decode {
     my ($dgn, $data) = @_;
     my %result;
 
-    # Fetch the decoder configuration for the given DGN from rvc-spec.yml
     my $decoder = $decoders->{$dgn};
     unless ($decoder) {
         log_debug("No decoder found for DGN $dgn");
@@ -241,7 +244,6 @@ sub decode {
         }
     }
 
-    # Ensure the instance is captured if defined
     $result{instance} = $result{instance} // undef;
 
     return \%result;
@@ -254,7 +256,6 @@ sub get_bytes {
     $end_byte = $start_byte if !defined $end_byte;
     my $length = ($end_byte - $start_byte + 1) * 2;
     
-    # Ensure we're not exceeding the length of the data string
     return '' if $start_byte * 2 >= length($data);
     
     my $sub_bytes = substr($data, $start_byte * 2, $length);
@@ -266,7 +267,7 @@ sub get_bytes {
 
 sub get_bits {
     my ($bytes, $bitrange) = @_;
-    return unless length($bytes);  # Ensure we have bytes to work with
+    return unless length($bytes);
 
     my $bits = hex2bin($bytes);
     return unless defined $bits && length($bits);
@@ -347,7 +348,6 @@ sub tempC2F {
 sub log_to_temp_file {
     my ($dgn) = @_;
 
-    # Read the file to check if the DGN is already logged
     if (-e $undefined_dgns_file) {
         open my $fh, '<', $undefined_dgns_file or do {
             log_to_journald("Failed to open log file for reading undefined DGN $dgn: $!");
@@ -357,13 +357,12 @@ sub log_to_temp_file {
             chomp $line;
             if ($line eq $dgn) {
                 close $fh;
-                return;  # DGN already logged, exit the subroutine
+                return;
             }
         }
         close $fh;
     }
 
-    # If not already logged, append the DGN to the file
     open my $fh, '>>', $undefined_dgns_file or do {
         log_to_journald("Failed to open log file for appending undefined DGN $dgn: $!");
         return;
@@ -377,13 +376,8 @@ sub log_to_temp_file {
 sub log_to_journald {
     my ($message) = @_;
 
-    # Open a connection to syslog
     openlog('rvc2hass', 'cons,pid', LOG_USER);
-
-    # Log the message
     syslog(LOG_INFO, $message);
-
-    # Close the connection to syslog
     closelog();
 }
 
