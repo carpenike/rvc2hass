@@ -46,22 +46,29 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
         log_to_journald("MQTT login successful.");
 
-        # Test the connection by attempting to publish to a known topic
-        eval {
-            $mqtt->publish("test/connection", "MQTT connection successful");
-            log_to_journald("Test message published to MQTT broker.");
-        };
-        if ($@ || !is_connected($mqtt)) {
-            log_to_journald("Failed to publish test message or verify connection: $@");
-            die "MQTT publish or connection verification failed";  # Force the catch block to trigger
-        }
+        # Subscribe to the test topic
+        my $test_topic = "test/connection_check";
+        my $message_received;
+        $mqtt->subscribe($test_topic => sub {
+            my ($topic, $message) = @_;
+            $message_received = $message;
+        });
 
-        # If publish is successful, the connection is good
-        log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
-        last;  # Successful connection, exit the loop
+        # Publish a test message to the topic
+        $mqtt->publish($test_topic, "MQTT connection successful");
+
+        # Wait a short time for the message to be received
+        sleep(1);
+
+        if ($message_received && $message_received eq "MQTT connection successful") {
+            log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
+            last;  # Successful connection, exit the loop
+        } else {
+            log_to_journald("Failed to receive confirmation message on attempt $attempt.");
+            $mqtt = undef;  # Reset $mqtt to ensure it is not used if the connection fails
+        }
     }
     catch {
-        # Capture the specific "Connection refused" error and log a more descriptive message
         if ($_ =~ /connect: Connection refused/) {
             log_to_journald("Connection refused by MQTT broker. Please check if the broker is running and accessible.");
         } else {
@@ -142,15 +149,6 @@ while (my $line = <$file>) {
     process_packet(@parts);
 }
 close $file;
-
-# Function to check if the connection is actually working
-sub is_connected {
-    my ($mqtt) = @_;
-    eval {
-        $mqtt->publish("test/connection_check", "Checking MQTT connection...");
-    };
-    return $@ ? 0 : 1;
-}
 
 # Reconnect function to handle MQTT reconnections
 sub reconnect_mqtt {
