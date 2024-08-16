@@ -61,6 +61,10 @@ unless (defined $mqtt) {
     die "Failed to connect to MQTT broker after $max_retries attempts.";  # Exit the script
 }
 
+# Systemd watchdog initialization
+my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
+my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it
+
 # Start watchdog thread if watchdog is enabled
 if ($watchdog_interval) {
     threads->create(sub {
@@ -88,6 +92,7 @@ if ($watchdog_interval) {
     })->detach;
 }
 
+# Reconnect function to handle MQTT reconnections
 sub reconnect_mqtt {
     for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         try {
