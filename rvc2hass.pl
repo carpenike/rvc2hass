@@ -142,7 +142,7 @@ sub start_watchdog {
             try {
                 # Ensure subscription to the heartbeat topic at the start of each loop
                 my $heartbeat_topic = "test/heartbeat";
-                my $heartbeat_received;
+                my $heartbeat_received = 0;  # Reset at the start of each iteration
                 $mqtt->subscribe($heartbeat_topic => sub {
                     my ($topic, $message) = @_;
                     log_to_journald("Received heartbeat on $heartbeat_topic: $message");
