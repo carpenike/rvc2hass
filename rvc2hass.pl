@@ -37,6 +37,7 @@ my $retry_delay = 5;  # seconds
 log_to_journald("Starting MQTT initialization...");
 my $mqtt;
 my $connected = 0;  # Flag to track successful connection
+
 for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
     log_to_journald("MQTT connection attempt $attempt...");
     try {
@@ -51,28 +52,24 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         log_to_journald("MQTT login successful.") if $mqtt_username && $mqtt_password;
 
         # Test the connection by attempting to publish to a known topic
-        try {
-            $mqtt->publish("test/connection", "MQTT connection successful");
-            log_to_journald("Test message published to MQTT broker.");
+        $mqtt->publish("test/connection", "MQTT connection successful");
+        log_to_journald("Test message published to MQTT broker.");
+
+        # Verify connection by checking for errors
+        if (check_connection_error($mqtt)) {
+            log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
             $connected = 1;  # Set the flag to indicate success
-        }
-        catch {
-            # If the publish fails, it's likely due to a connection issue
-            log_to_journald("Failed to publish test message: $_");
+            last;  # Successful connection, exit the loop
+        } else {
+            log_to_journald("Failed to connect to MQTT broker.");
             $mqtt = undef;  # Reset $mqtt to ensure it is not used if the connection fails
-        };
+        }
     }
     catch {
-        # Capture the specific "Connection refused" error and log a more descriptive message
-        if ($_ =~ /connect: Connection refused/) {
-            log_to_journald("Connection refused by MQTT broker. Please check if the broker is running and accessible.");
-        } else {
-            log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
-        }
+        log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
         $mqtt = undef;  # Reset $mqtt on failure
     };
 
-    last if $connected;  # Exit the loop if the connection is successful
     sleep($retry_delay) if !$connected && $attempt < $max_retries;  # Sleep before the next attempt
 }
 
@@ -83,7 +80,6 @@ unless ($connected) {
 }
 
 log_to_journald("MQTT initialization complete.");
-
 
 # Remaining script only executes if $mqtt is defined
 # Systemd watchdog initialization
@@ -146,6 +142,20 @@ while (my $line = <$file>) {
     process_packet(@parts);
 }
 close $file;
+
+sub check_connection_error {
+    my ($mqtt) = @_;
+
+    # Attempt to interact with the broker to see if the connection is valid
+    try {
+        $mqtt->publish("test/connection/check", "Checking MQTT connection");
+        return 1;  # If successful, return true
+    }
+    catch {
+        log_to_journald("Connection check failed: $_");
+        return 0;  # If any error occurs, return false
+    };
+}
 
 # Reconnect function to handle MQTT reconnections
 sub reconnect_mqtt {
