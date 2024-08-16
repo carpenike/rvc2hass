@@ -51,21 +51,29 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         log_to_journald("MQTT login successful.") if $mqtt_username && $mqtt_password;
 
         # Test the connection by attempting to publish to a known topic
-        $mqtt->publish("test/connection", "MQTT connection successful");
-        log_to_journald("Test message published to MQTT broker.");
-
-        # If we reach this point, assume the connection is successful
-        log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
-        $connected = 1;  # Set the flag to indicate success
+        try {
+            $mqtt->publish("test/connection", "MQTT connection successful");
+            log_to_journald("Test message published to MQTT broker.");
+            $connected = 1;  # Set the flag to indicate success
+        }
+        catch {
+            # If the publish fails, it's likely due to a connection issue
+            log_to_journald("Failed to publish test message: $_");
+            $mqtt = undef;  # Reset $mqtt to ensure it is not used if the connection fails
+        };
     }
     catch {
-        # Handle connection errors
-        log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
+        # Capture the specific "Connection refused" error and log a more descriptive message
+        if ($_ =~ /connect: Connection refused/) {
+            log_to_journald("Connection refused by MQTT broker. Please check if the broker is running and accessible.");
+        } else {
+            log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
+        }
         $mqtt = undef;  # Reset $mqtt on failure
-        sleep($retry_delay) if $attempt < $max_retries;  # Sleep before the next attempt
     };
 
     last if $connected;  # Exit the loop if the connection is successful
+    sleep($retry_delay) if !$connected && $attempt < $max_retries;  # Sleep before the next attempt
 }
 
 # Only continue if $mqtt is defined and connected
@@ -75,6 +83,7 @@ unless ($connected) {
 }
 
 log_to_journald("MQTT initialization complete.");
+
 
 # Remaining script only executes if $mqtt is defined
 # Systemd watchdog initialization
