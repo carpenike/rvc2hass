@@ -154,8 +154,7 @@ sub start_watchdog {
                     }
                 });
 
-                # Adding a short sleep to ensure subscription is active before publishing
-                sleep(0.5);
+                log_to_journald("escaped the subscribe block");
 
                 # Publish a heartbeat message to MQTT
                 $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
