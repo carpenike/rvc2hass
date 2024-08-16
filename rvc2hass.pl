@@ -45,7 +45,7 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
 
         # Test the connection by attempting to publish to a known topic
         $mqtt->publish("test/connection", "MQTT connection successful");
-        
+
         # Verify that the MQTT object is properly connected
         my $is_connected = eval { $mqtt->ping() };  # Try to ping the broker
         
@@ -65,14 +65,10 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
             log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
         }
         $mqtt = undef;  # Reset $mqtt on failure
-        sleep($retry_delay) if $attempt < $max_retries;
-        
-        # If this is the last attempt, die
-        if ($attempt == $max_retries) {
-            log_to_journald("Failed to connect to MQTT broker after $max_retries attempts. Exiting.");
-            die "Failed to connect to MQTT broker after $max_retries attempts.";
-        }
     };
+
+    # Sleep between retry attempts, but only if there are more attempts remaining
+    sleep($retry_delay) if $attempt < $max_retries;
 }
 
 # Only continue if $mqtt is defined and connected
