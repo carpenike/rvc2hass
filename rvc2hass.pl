@@ -153,7 +153,7 @@ sub start_watchdog {
                         $heartbeat_received = 1;
                     }
                 });
-
+                sleep(5);  # Wait for the subscription to take effect
                 # Publish a heartbeat message to MQTT
                 $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
                 log_to_journald("Published heartbeat message to MQTT");
