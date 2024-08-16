@@ -20,27 +20,24 @@ use Getopt::Long;
 my $debug = 0;
 GetOptions("debug" => \$debug);
 
-# Pre-start checks
-log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV));
-
-# Allow unencrypted connection with credentials
-$ENV{MQTT_SIMPLE_ALLOW_INSECURE_LOGIN} = 1;
-
-# Configuration
+# Configuration Variables
 my $mqtt_host = $ENV{MQTT_HOST} || "localhost";
 my $mqtt_port = $ENV{MQTT_PORT} || 1883;
 my $mqtt_username = $ENV{MQTT_USERNAME};
 my $mqtt_password = $ENV{MQTT_PASSWORD};
 my $max_retries = 5;
 my $retry_delay = 5;  # seconds
+my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
+my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it
+
+# Environment Pre-checks
+log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV));
+$ENV{MQTT_SIMPLE_ALLOW_INSECURE_LOGIN} = 1;  # Allow unencrypted connection with credentials
 
 # Initialize MQTT
 my $mqtt = initialize_mqtt();
 
-# Systemd watchdog initialization
-my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
-my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it
-
+# Start Watchdog if configured
 start_watchdog($mqtt, $watchdog_interval) if $watchdog_interval;
 
 # Get the directory of the currently running script
