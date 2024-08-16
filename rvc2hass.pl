@@ -138,11 +138,11 @@ sub start_watchdog {
     my $watchdog_thread = threads->create(sub {
         while (1) {
             my $mqtt_success = 0;  # Flag to check if MQTT operations were successful
+            my $heartbeat_received;
 
             try {
                 # Ensure subscription to the heartbeat topic at the start of each loop
                 my $heartbeat_topic = "test/heartbeat";
-                my $heartbeat_received;
                 $mqtt->subscribe($heartbeat_topic => sub {
                     my ($topic, $message) = @_;
                     log_to_journald("Received heartbeat on $heartbeat_topic: $message");
@@ -158,17 +158,15 @@ sub start_watchdog {
                     $mqtt->tick();  # Process incoming messages
                     if ($heartbeat_received && $heartbeat_received eq "Heartbeat message from watchdog") {
                         log_to_journald("Heartbeat confirmation received.");
+                        systemd_notify("WATCHDOG=1");  # Notify systemd immediately upon successful heartbeat
+                        log_to_journald("Systemd watchdog notified successfully.");
                         $mqtt_success = 1;  # Mark MQTT operations as successful
                         last;  # Exit the loop early if confirmation is received
                     }
                     sleep(1);  # Wait a bit longer for the message to arrive
                 }
 
-                if ($mqtt_success) {
-                    systemd_notify("WATCHDOG=1");
-                    log_to_journald("Systemd watchdog notified successfully.");
-                } else {
-                    log_to_journald("Failed to receive heartbeat confirmation. Exiting.");
+                unless ($mqtt_success) {
                     die "Failed to receive heartbeat confirmation. Exiting.";
                 }
             }
