@@ -114,10 +114,13 @@ sub initialize_mqtt {
             }
         }
         catch {
-            if ($_ =~ /connect: Connection refused/) {
+            my $error_msg = $_;  # Capture the error message
+            log_to_journald("Error caught: $error_msg");
+
+            if ($error_msg =~ /connect: Connection refused/) {
                 log_to_journald("Connection refused by MQTT broker. Please check if the broker is running and accessible.");
             } else {
-                log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
+                log_to_journald("Failed to connect to MQTT on attempt $attempt: $error_msg");
             }
             $mqtt = undef;  # Reset $mqtt on failure
             sleep($retry_delay) if $attempt < $max_retries;
