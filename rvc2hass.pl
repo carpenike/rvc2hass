@@ -45,17 +45,10 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
 
         # Test the connection by attempting to publish to a known topic
         $mqtt->publish("test/connection", "MQTT connection successful");
-
-        # Verify that the MQTT object is properly connected
-        my $is_connected = eval { $mqtt->ping() };  # Try to ping the broker
         
-        if ($is_connected) {
-            log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
-            last;  # Successful connection, exit the loop
-        } else {
-            log_to_journald("Failed to ping MQTT broker on attempt $attempt.");
-            $mqtt = undef;  # Reset $mqtt to ensure it is not used if the connection fails
-        }
+        # If we successfully publish the message, consider the connection successful
+        log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
+        last;  # Successful connection, exit the loop
     }
     catch {
         # Capture the specific "Connection refused" error and log a more descriptive message
