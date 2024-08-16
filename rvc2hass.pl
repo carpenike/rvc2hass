@@ -151,6 +151,7 @@ sub start_watchdog {
                     my ($topic, $message) = @_;
                     log_to_journald("Received heartbeat on $heartbeat_topic: $message");
                     if ($message eq "Heartbeat message from watchdog") {
+                        log_to_journald("Setting heartbeat received flag.");
                         $heartbeat_received = 1;
                     }
                 });
@@ -158,7 +159,7 @@ sub start_watchdog {
                 # Publish a heartbeat message to MQTT
                 $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
                 log_to_journald("Published heartbeat message to MQTT");
-                sleep(2);
+
                 # Wait for the confirmation message
                 for (my $wait = 0; $wait < 15; $wait++) {  # Increased wait time to 15 seconds
                     $mqtt->tick();  # Process incoming messages
