@@ -36,33 +36,30 @@ my $retry_delay = 5;  # seconds
 # MQTT initialization with retries
 my $mqtt;
 for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
-    eval {
+    try {
         my $connection_string = "$mqtt_host:$mqtt_port";
-
+        
         # Attempt to create the MQTT client
         $mqtt = Net::MQTT::Simple->new($connection_string);
         $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
 
-        # Test the connection by attempting to publish to a known topic
-        $mqtt->publish("test/connection", "MQTT connection successful");
-
-        # If publish succeeds without error, connection is successful
+        # If we reach this point, assume the connection is successful
         log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
         last;  # Exit the loop if the connection is successful
-    };
-    if ($@) {
-        log_to_journald("Failed to connect to MQTT on attempt $attempt: $@");
+    }
+    catch {
+        # Handle connection errors
+        log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
         $mqtt = undef;  # Reset $mqtt on failure
         sleep($retry_delay) if $attempt < $max_retries;  # Sleep before the next attempt
     }
 }
 
-# Only continue if $mqtt is defined and connected
+# Only continue if $mqtt is defined
 unless (defined $mqtt) {
     log_to_journald("MQTT connection failed after $max_retries attempts. Exiting.");
     die "MQTT connection failed; cannot proceed.";
 }
-
 
 # Remaining script only executes if $mqtt is defined
 # Systemd watchdog initialization
