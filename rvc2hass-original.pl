@@ -23,23 +23,44 @@ GetOptions("debug" => \$debug);
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV));
 
 # Configuration
-my $mqtt_host = $ENV{MQTT_HOST} || "localhost";
-my $mqtt_port = $ENV{MQTT_PORT} || 1883;  # Define the MQTT port
-my $mqtt_username = $ENV{MQTT_USERNAME};
-my $mqtt_password = $ENV{MQTT_PASSWORD};
-my $max_retries = 5;
-my $retry_delay = 5;  # seconds
+my $mqtt_host = "192.168.50.20";
+my $mqtt_port = 1883;  # Define the MQTT port
+
+# Retrieve MQTT credentials from environment variables
+my $mqtt_username = $ENV{'MQTT_USERNAME'};
+my $mqtt_password = $ENV{'MQTT_PASSWORD'};
+
+# Create a temporary directory for undefined DGNs
+my $temp_dir = tempdir(CLEANUP => 1);
+my $undefined_dgns_file = "$temp_dir/undefined_dgns.log";
+
+# Log the temp directory path to journald
+log_to_journald("Temporary directory created at: $temp_dir");
+
+# Get the directory of the currently running script
+my $script_dir = dirname(__FILE__);
+
+# Load YAML files
+my $yaml_specs = YAML::Tiny->read("$script_dir/rvc-spec.yml");
+my $decoders = $yaml_specs->[0] if $yaml_specs;
+
+my $yaml_lookup = YAML::Tiny->read("$script_dir/coach-devices.yml");
+my $lookup = $yaml_lookup->[0] if $yaml_lookup;
 
 # MQTT initialization with retries
 my $mqtt;
+my $max_retries = 5;
+my $retry_delay = 5;  # seconds
+
 for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
     try {
-        my $connection_string = $mqtt_username && $mqtt_password 
-            ? "$mqtt_username:$mqtt_password\@$mqtt_host:$mqtt_port" 
-            : "$mqtt_host:$mqtt_port";
-        
-        $mqtt = Net::MQTT::Simple->new($connection_string);
-        last;  # Exit the loop if connection is successful
+        # Use the username and password if provided
+        if ($ENV{MQTT_USERNAME} && $ENV{MQTT_PASSWORD}) {
+            $mqtt = Net::MQTT::Simple->new("$ENV{MQTT_USERNAME}:$ENV{MQTT_PASSWORD}\@$mqtt_host:$mqtt_port");
+        } else {
+            $mqtt = Net::MQTT::Simple->new("$mqtt_host:$mqtt_port");
+        }
+        last if defined $mqtt;  # Exit the loop if connection is successful
     }
     catch {
         log_to_journald("Attempting to reconnect to MQTT: Attempt $attempt");
@@ -67,28 +88,40 @@ if ($watchdog_interval) {
     })->detach;
 }
 
-# Get the directory of the currently running script
-my $script_dir = dirname(__FILE__);
-
-# Load YAML files
-my $yaml_specs = YAML::Tiny->read("$script_dir/config/rvc-spec.yml");
-my $decoders = $yaml_specs->[0] if $yaml_specs;
-
-my $yaml_lookup = YAML::Tiny->read("$script_dir/config/coach-devices.yml");
-my $lookup = $yaml_lookup->[0] if $yaml_lookup;
-
-# Create a temporary directory for undefined DGNs
-my $temp_dir = tempdir(CLEANUP => 1);
-my $undefined_dgns_file = "$temp_dir/undefined_dgns.log";
-
-# Log the temp directory path to journald
-log_to_journald("Temporary directory created at: $temp_dir");
+# CAN bus mutex for synchronized access
+my $canbus_mutex :shared;
 
 # Open CAN bus data stream
 open my $file, '-|', 'candump', '-ta', 'can0' or die "Cannot start candump: $!\n";
 
 # Notify systemd of successful startup
 systemd_notify("READY=1");
+
+# Global MQTT subscription for command topics
+foreach my $dgn (keys %$lookup) {
+    foreach my $instance (keys %{$lookup->{$dgn}}) {
+        my $configs = $lookup->{$dgn}->{$instance};
+        foreach my $config (@$configs) {
+            my $command_topic = $config->{command_topic};  # If command_topic is defined
+            if ($command_topic) {
+                log_to_journald("Subscribing to command topic: $command_topic for device: $config->{ha_name}, DGN: $dgn");
+                
+                # Subscribe to the command topic
+                $mqtt->subscribe($command_topic => sub {
+                    my ($topic, $message) = @_;
+                    log_to_journald("Received command on topic $topic: $message");
+                    my $command_message = decode_json($message);
+                    $config->{dgn} = $dgn;  # Ensure DGN is passed to process_command
+                    process_command($config, $command_message);
+                    log_to_journald("Processed command on topic $topic for device $config->{ha_name}");
+                });
+
+            } else {
+                log_to_journald("No command_topic found for device: $config->{ha_name}, DGN: $dgn");
+            }
+        }
+    }
+}
 
 while (my $line = <$file>) {
     chomp $line;
@@ -163,20 +196,11 @@ sub publish_mqtt {
     my %config_message = (
         name => $friendly_name,
         state_topic => $state_topic,
-        command_topic => $command_topic,
         value_template => $config->{value_template},
         device_class => $config->{device_class},  # Include device_class if applicable
         unique_id => $ha_name,  # Ensure unique ID for the device
-        json_attributes_topic => $state_topic,
+        json_attributes_topic => $state_topic
     );
-
-    # If the device is a light, include brightness settings
-    if ($config->{device_type} eq 'light') {
-        $config_message{brightness} = JSON::true;  # Ensure brightness control
-        $config_message{brightness_scale} = 100;  # Set brightness scale to 100
-        $config_message{payload_on} = "ON";  # Set payload for turning on
-        $config_message{payload_off} = "OFF";  # Set payload for turning off
-    }
 
     my $config_json = encode_json(\%config_message);
     $mqtt->retain("homeassistant/$config->{device_type}/$ha_name/config", $config_json);
@@ -189,6 +213,60 @@ sub publish_mqtt {
     # Merge with existing result data
     my $state_json = encode_json({ %$result, %state_message });
     $mqtt->retain($state_topic, $state_json);
+}
+
+sub process_command {
+    my ($config, $command_message) = @_;
+
+    if ($config->{device_type} eq 'light') {
+        my $dgn = $config->{dgn};
+        my $instance = $config->{instance};
+
+        my $command;
+        my $brightness;
+
+        # Determine the command based on the incoming message
+        if (exists $command_message->{state}) {
+            if ($command_message->{state} eq 'ON') {
+                $command = 17;  # Example command for turning on a dimmable light
+                $brightness = 100;  # Default to full brightness if not specified
+            } elsif ($command_message->{state} eq 'OFF') {
+                $command = 3;  # Example command for turning off the light
+                $brightness = 0;
+            }
+        }
+
+        # Handle brightness level if specified
+        if (exists $command_message->{brightness}) {
+            $brightness = $command_message->{brightness};
+            $command = 17 if !defined $command;  # Set command to adjust brightness if not already set
+        }
+
+        # Lock before sending CAN bus message
+        {
+            lock($canbus_mutex);
+
+            # Construct CAN bus message
+            if (defined $command && defined $brightness) {
+                my $prio = 6;  # Priority level (adjust as needed)
+                my $dgnhi = substr($dgn, 0, 3);  # High part of the DGN
+                my $dgnlo = substr($dgn, 3, 2);  # Low part of the DGN
+                my $srcAD = 99;  # Source address (adjust as needed)
+
+                my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
+                my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
+                my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness * 2, $command, 255);
+
+                # Send the command to the CAN bus
+                system('cansend can0 '.$hexCanId."#".$hexData);
+                log_to_journald("Sent CAN bus message: $hexCanId#$hexData for light $config->{ha_name}");
+            } else {
+                log_to_journald("Invalid command or brightness value for light $config->{ha_name}");
+            }
+        }
+    } else {
+        log_to_journald("process_command received a non-light device type: $config->{device_type}");
+    }
 }
 
 sub decode {
