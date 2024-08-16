@@ -135,16 +135,11 @@ sub initialize_mqtt {
 
 # Subroutine to start the watchdog thread
 sub start_watchdog {
-    my ($mqtt, $watchdog_interval) = @_;
-
-    threads->create(sub {
+    my $watchdog_thread = threads->create(sub {
         while (1) {
             my $mqtt_success = 0;  # Flag to check if MQTT operations were successful
 
             try {
-                # Publish a heartbeat message to MQTT
-                $mqtt->publish("test/heartbeat", "Heartbeat message from watchdog");
-
                 # Subscribe to the heartbeat check topic
                 my $heartbeat_topic = "test/heartbeat";
                 my $heartbeat_received;
@@ -154,19 +149,23 @@ sub start_watchdog {
                     $heartbeat_received = $message;
                 });
 
+                # Publish a heartbeat message to MQTT
+                $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
+
                 # Wait for the confirmation message
-                for (my $wait = 0; $wait < 10; $wait++) {  # Wait a bit longer
-                    last if $heartbeat_received;
-                    $mqtt->tick();
-                    sleep(1);
+                for (my $wait = 0; $wait < 10; $wait++) {  # Increase wait time
+                    $mqtt->tick();  # Process incoming messages
+                    if ($heartbeat_received && $heartbeat_received eq "Heartbeat message from watchdog") {
+                        log_to_journald("Heartbeat confirmation received.");
+                        $mqtt_success = 1;  # Mark MQTT operations as successful
+                        last;  # Exit the loop early if confirmation is received
+                    }
+                    sleep(1);  # Wait a bit longer for the message to arrive
                 }
 
-                if ($heartbeat_received && $heartbeat_received eq "Heartbeat message from watchdog") {
-                    log_to_journald("Heartbeat confirmation received.");
-                    $mqtt_success = 1;  # Mark MQTT operations as successful
-                } else {
+                unless ($mqtt_success) {
                     log_to_journald("Failed to receive heartbeat confirmation. Attempting to reconnect to MQTT.");
-                    reconnect_mqtt($mqtt);  # Attempt to reconnect to MQTT
+                    reconnect_mqtt();  # Attempt to reconnect to MQTT
 
                     unless (defined $mqtt) {
                         log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
@@ -176,7 +175,7 @@ sub start_watchdog {
             }
             catch {
                 log_to_journald("Failed to publish heartbeat in watchdog: $_. Reconnecting to MQTT.");
-                reconnect_mqtt($mqtt);  # Attempt to reconnect to MQTT
+                reconnect_mqtt();  # Attempt to reconnect to MQTT
 
                 unless (defined $mqtt) {
                     log_to_journald("MQTT connection lost and could not be re-established. Exiting.");
@@ -193,7 +192,9 @@ sub start_watchdog {
 
             sleep($watchdog_interval);  # Wait before the next check
         }
-    })->detach;
+    });
+
+    $watchdog_thread->detach();
 }
 
 # Reconnect function to handle MQTT reconnections
