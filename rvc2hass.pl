@@ -79,7 +79,7 @@ if ($watchdog_interval) {
             catch {
                 log_to_journald("Failed to publish heartbeat in watchdog. Reconnecting to MQTT.");
                 reconnect_mqtt();  # Attempt to reconnect to MQTT
-            }
+            };
 
             sleep($watchdog_interval);  # Wait before the next check
         }
@@ -99,7 +99,7 @@ sub reconnect_mqtt {
         catch {
             log_to_journald("Reconnection attempt $attempt failed.");
             sleep($retry_delay);
-        }
+        };
     }
     log_to_journald("Failed to reconnect to MQTT broker after $max_retries attempts. Exiting.");
     die "Failed to reconnect to MQTT broker.";
