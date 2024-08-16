@@ -51,14 +51,19 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         my $message_received;
         $mqtt->subscribe($test_topic => sub {
             my ($topic, $message) = @_;
+            log_to_journald("Received message on $test_topic: $message");
             $message_received = $message;
         });
 
         # Publish a test message to the topic
         $mqtt->publish($test_topic, "MQTT connection successful");
 
-        # Wait a short time for the message to be received
-        sleep(1);
+        # Wait for the message to be received (increased sleep time)
+        for (my $wait = 0; $wait < 5; $wait++) {
+            last if $message_received;
+            $mqtt->tick();  # Process incoming messages
+            sleep(1);  # Wait a bit longer for the message to arrive
+        }
 
         if ($message_received && $message_received eq "MQTT connection successful") {
             log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
