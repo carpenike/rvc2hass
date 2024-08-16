@@ -22,6 +22,9 @@ GetOptions("debug" => \$debug);
 # Pre-start checks
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV));
 
+# Allow unencrypted connection with credentials
+$ENV{MQTT_SIMPLE_ALLOW_INSECURE_LOGIN} = 1;
+
 # Configuration
 my $mqtt_host = $ENV{MQTT_HOST} || "localhost";
 my $mqtt_port = $ENV{MQTT_PORT} || 1883;
@@ -32,6 +35,7 @@ my $retry_delay = 5;  # seconds
 
 # MQTT initialization with retries
 my $mqtt;
+
 for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
     try {
         if ($mqtt_username && $mqtt_password) {
