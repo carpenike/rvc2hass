@@ -138,7 +138,7 @@ sub start_watchdog {
     my $watchdog_thread = threads->create(sub {
         while (1) {
             my $mqtt_success = 0;  # Flag to check if MQTT operations were successful
-            my $heartbeat_received = 0;
+            my $heartbeat_received = 0;  # Reset the flag at the start of each loop
 
             try {
                 my $heartbeat_topic = "test/heartbeat";
@@ -182,6 +182,9 @@ sub start_watchdog {
                 log_to_journald("Error in watchdog loop: $_. Exiting.");
                 die "Error in watchdog loop: $_. Exiting.";
             };
+
+            # Reset heartbeat flag after each loop to ensure it's ready for the next cycle
+            $heartbeat_received = 0;
 
             sleep($watchdog_interval);  # Wait before the next check
         }
