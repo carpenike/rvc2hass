@@ -124,11 +124,7 @@ if ($watchdog_interval) {
                 }
 
                 if ($heartbeat_received && $heartbeat_received eq "Heartbeat message from watchdog") {
-                    log_to_journald("Heartbeat confirmation received. Deleting the heartbeat message.");
-                    
-                    # Delete the heartbeat message by publishing an empty payload
-                    $mqtt->retain($heartbeat_topic, "");
-                    log_to_journald("Heartbeat message deleted from $heartbeat_topic.");
+                    log_to_journald("Heartbeat confirmation received.");
 
                     # Notify systemd that the service is still alive
                     systemd_notify("WATCHDOG=1");
