@@ -102,11 +102,13 @@ my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0
 if ($watchdog_interval) {
     threads->create(sub {
         while (1) {
+            my $mqtt_success = 0;  # Flag to check if MQTT operations were successful
+
             try {
                 # Publish a heartbeat message to MQTT
                 $mqtt->publish("test/heartbeat", "Heartbeat message from watchdog");
 
-                # Subscribe to the heartbeat check topic after publishing the message
+                # Subscribe to the heartbeat check topic
                 my $heartbeat_topic = "test/heartbeat_check";
                 my $heartbeat_received;
                 $mqtt->subscribe($heartbeat_topic => sub {
@@ -116,7 +118,7 @@ if ($watchdog_interval) {
                 });
 
                 # Wait for the confirmation message
-                for (my $wait = 0; $wait < 10; $wait++) {  # Increased wait time
+                for (my $wait = 0; $wait < 10; $wait++) {  # Wait a bit longer
                     last if $heartbeat_received;
                     $mqtt->tick();
                     sleep(1);
@@ -124,9 +126,7 @@ if ($watchdog_interval) {
 
                 if ($heartbeat_received && $heartbeat_received eq "Heartbeat message from watchdog") {
                     log_to_journald("Heartbeat confirmation received.");
-
-                    # Notify systemd that the service is still alive
-                    systemd_notify("WATCHDOG=1");
+                    $mqtt_success = 1;  # Mark MQTT operations as successful
                 } else {
                     log_to_journald("Failed to receive heartbeat confirmation. Attempting to reconnect to MQTT.");
                     reconnect_mqtt();  # Attempt to reconnect to MQTT
@@ -147,10 +147,18 @@ if ($watchdog_interval) {
                 }
             };
 
+            if ($mqtt_success) {
+                # Notify systemd that the service is still alive only if MQTT operations were successful
+                systemd_notify("WATCHDOG=1");
+            } else {
+                log_to_journald("MQTT operation failed. Not notifying systemd. Watchdog may terminate the service.");
+            }
+
             sleep($watchdog_interval);  # Wait before the next check
         }
     })->detach;
 }
+
 
 # Get the directory of the currently running script
 my $script_dir = dirname(__FILE__);
