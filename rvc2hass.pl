@@ -2,6 +2,7 @@
 
 use strict;
 use warnings;
+no warnings 'exiting';  # Suppress 'exiting' warnings
 use File::Temp qw(tempdir);
 use YAML::Tiny;
 use JSON qw(encode_json decode_json);
