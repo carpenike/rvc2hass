@@ -49,10 +49,15 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         last;  # Exit the loop if connection is successful
     }
     catch {
-        log_to_journald("Attempting to reconnect to MQTT: Attempt $attempt");
+        log_to_journald("Failed to connect to MQTT on attempt $attempt: $_");
         sleep($retry_delay) if $attempt < $max_retries;
-        log_to_journald("Failed to connect to MQTT after $max_retries attempts") if $attempt == $max_retries;
-    }
+
+        # If this is the last attempt, die
+        if ($attempt == $max_retries) {
+            log_to_journald("Failed to connect to MQTT broker after $max_retries attempts. Exiting.");
+            die "Failed to connect to MQTT broker after $max_retries attempts.";
+        }
+    };
 }
 
 # Check if the MQTT connection was successful before trying to subscribe
