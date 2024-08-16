@@ -49,13 +49,12 @@ for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
         # Test the connection by attempting to publish to a known topic
         eval {
             $mqtt->publish("test/connection", "MQTT connection successful");
+            log_to_journald("Test message published to MQTT broker.");
         };
-        if ($@) {
-            log_to_journald("Failed to publish test message: $@");
-            die "MQTT publish failed";  # Force the catch block to trigger
+        if ($@ || !is_connected($mqtt)) {
+            log_to_journald("Failed to publish test message or verify connection: $@");
+            die "MQTT publish or connection verification failed";  # Force the catch block to trigger
         }
-
-        log_to_journald("Test message published to MQTT broker.");
 
         # If publish is successful, the connection is good
         log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
@@ -144,18 +143,13 @@ while (my $line = <$file>) {
 }
 close $file;
 
-sub check_connection_error {
+# Function to check if the connection is actually working
+sub is_connected {
     my ($mqtt) = @_;
-
-    # Attempt to interact with the broker to see if the connection is valid
-    try {
-        $mqtt->publish("test/connection/check", "Checking MQTT connection");
-        return 1;  # If successful, return true
-    }
-    catch {
-        log_to_journald("Connection check failed: $_");
-        return 0;  # If any error occurs, return false
+    eval {
+        $mqtt->publish("test/connection_check", "Checking MQTT connection...");
     };
+    return $@ ? 0 : 1;
 }
 
 # Reconnect function to handle MQTT reconnections
