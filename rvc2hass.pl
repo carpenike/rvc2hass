@@ -138,13 +138,11 @@ sub start_watchdog {
     my $watchdog_thread = threads->create(sub {
         while (1) {
             my $mqtt_success = 0;  # Flag to check if MQTT operations were successful
-            my $heartbeat_received = 0;  # Reset the flag at the start of each loop
 
             try {
+                # Ensure subscription to the heartbeat topic at the start of each loop
                 my $heartbeat_topic = "test/heartbeat";
-
-                # Unsubscribe and resubscribe to ensure fresh subscription each cycle
-                $mqtt->unsubscribe($heartbeat_topic);
+                my $heartbeat_received;
                 $mqtt->subscribe($heartbeat_topic => sub {
                     my ($topic, $message) = @_;
                     log_to_journald("Received heartbeat on $heartbeat_topic: $message");
@@ -159,30 +157,41 @@ sub start_watchdog {
                 log_to_journald("Published heartbeat message to MQTT");
 
                 # Wait for the confirmation message
-                for (my $wait = 0; $wait < 15; $wait++) {  # Increased wait time to 15 seconds
+                for (my $wait = 0; $wait < 10; $wait++) {
                     $mqtt->tick();  # Process incoming messages
                     if ($heartbeat_received) {
                         log_to_journald("Heartbeat confirmation received.");
-                        systemd_notify("WATCHDOG=1");  # Notify systemd immediately upon successful heartbeat
-                        log_to_journald("Systemd watchdog notified successfully.");
+
+                        # Test access to the notify socket
+                        my $notify_socket = $ENV{NOTIFY_SOCKET};
+                        if ($notify_socket) {
+                            log_to_journald("NOTIFY_SOCKET is set: $notify_socket");
+
+                            # Attempt to send a test notification
+                            if (systemd_notify("WATCHDOG=1")) {
+                                log_to_journald("Systemd watchdog notified successfully.");
+                            } else {
+                                log_to_journald("Failed to notify systemd watchdog.");
+                            }
+                        } else {
+                            log_to_journald("NOTIFY_SOCKET is not set.");
+                        }
+
                         $mqtt_success = 1;  # Mark MQTT operations as successful
                         last;  # Exit the loop early if confirmation is received
                     }
                     sleep(1);  # Wait a bit longer for the message to arrive
                 }
 
-                if (!$mqtt_success) {
+                unless ($mqtt_success) {
                     log_to_journald("Failed to receive heartbeat confirmation. Exiting.");
-                    die "Failed to receive heartbeat confirmation. Exiting.";
+                    die "Error in watchdog loop: Failed to receive heartbeat confirmation. Exiting.";
                 }
             }
             catch {
-                log_to_journald("Error in watchdog loop: $_. Exiting.");
-                die "Error in watchdog loop: $_. Exiting.";
+                log_to_journald("Error in watchdog loop: $_");
+                die "Error in watchdog loop: $_";
             };
-
-            # Reset heartbeat flag after each loop to ensure it's ready for the next cycle
-            $heartbeat_received = 0;
 
             sleep($watchdog_interval);  # Wait before the next check
         }
