@@ -86,7 +86,7 @@ sub initialize_mqtt {
             log_to_journald("MQTT login successful.");
 
             # Subscribe to the test topic
-            my $test_topic = "test/connection_check";
+            my $test_topic = "rvc2hass/connection_check";
             my $message_received;
             $mqtt->subscribe($test_topic => sub {
                 my ($topic, $message) = @_;
@@ -138,7 +138,7 @@ sub initialize_mqtt {
 
 # Subroutine to start the watchdog thread
 sub start_watchdog {
-    my $heartbeat_topic = "test/heartbeat";
+    my $heartbeat_topic = "rvc2hass/heartbeat";
     my $heartbeat_received = 0;
 
     # Subscribe to the heartbeat topic outside the loop
