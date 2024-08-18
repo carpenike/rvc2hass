@@ -164,7 +164,7 @@
 # Dimmable Lights
 1FEDA:
   30:
-    - ha_name: master_bath_ceiling_light_12345
+    - ha_name: master_bath_ceiling_light
       friendly_name: Master Bathroom Ceiling Light
       state_topic: "homeassistant/light/master_bath_ceiling_light/state"
       command_topic: "homeassistant/light/master_bath_ceiling_light/set"
