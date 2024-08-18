@@ -271,7 +271,7 @@ sub publish_mqtt {
             name => $friendly_name,
             state_topic => $state_topic,
             command_topic => $command_topic,
-            value_template => '{{ value_json.state }}',
+            #value_template => '{{ value_json.state }}',
             device_class => $config->{device_class},  # Include device_class if applicable
             unique_id => $ha_name,  # Ensure unique ID for the device
             json_attributes_topic => $state_topic,
