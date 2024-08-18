@@ -172,7 +172,7 @@
       device_class: light
       device_type: light
       brightness_state_topic: "homeassistant/light/master_bath_ceiling_light/state"
-      brightness_command_topic: "homeassistant/light/master_bath_ceiling_light/set"
+      brightness_command_topic: "homeassistant/light/master_bath_ceiling_light/brightness/set"
       brightness_value_template: "{{ value_json.brightness }}"
       brightness_command_template: "{{ value }}"
       payload_on: "ON"
