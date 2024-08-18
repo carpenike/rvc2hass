@@ -293,6 +293,9 @@ sub publish_mqtt {
         my $config_json = encode_json(\%config_message);
         $mqtt->retain("homeassistant/$config->{device_type}/$ha_name/config", $config_json);
 
+        # Log that a new device's /config was pushed
+        log_to_journald("Published /config for new device: $ha_name ($friendly_name)");
+
         # Mark this config as sent
         $sent_configs{$ha_name} = 1;
     }
@@ -318,6 +321,9 @@ sub publish_mqtt {
     # Publish the state message to the /state topic
     my $state_json = encode_json(\%state_message);
     $mqtt->retain($state_topic, $state_json);
+
+    # Debug log the state message being published
+    log_debug("Published /state for device: $ha_name ($friendly_name) with state: " . encode_json(\%state_message));
 }
 
 sub decode {
