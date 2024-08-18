@@ -254,6 +254,8 @@ sub handle_dimmable_light {
     publish_mqtt($config, $result);
 }
 
+my %sent_configs;  # Track sent configurations
+
 sub publish_mqtt {
     my ($config, $result) = @_;
 
@@ -262,32 +264,38 @@ sub publish_mqtt {
     my $state_topic = $config->{state_topic};
     my $command_topic = $config->{command_topic};  # If command_topic is defined
 
-    # Prepare the MQTT configuration message
-    my %config_message = (
-        name => $friendly_name,
-        state_topic => $state_topic,
-        command_topic => $command_topic,
-        value_template => '{{ value_json.state }}',
-        device_class => $config->{device_class},  # Include device_class if applicable
-        unique_id => $ha_name,  # Ensure unique ID for the device
-        json_attributes_topic => $state_topic,
-        payload_on => "ON",
-        payload_off => "OFF"
-    );
+    # Only send the /config message if it hasn't been sent already
+    unless ($sent_configs{$ha_name}) {
+        # Prepare the MQTT configuration message
+        my %config_message = (
+            name => $friendly_name,
+            state_topic => $state_topic,
+            command_topic => $command_topic,
+            value_template => '{{ value_json.state }}',
+            device_class => $config->{device_class},  # Include device_class if applicable
+            unique_id => $ha_name,  # Ensure unique ID for the device
+            json_attributes_topic => $state_topic,
+            payload_on => "ON",
+            payload_off => "OFF"
+        );
 
-    # If the device is a light, include brightness settings
-    if ($config->{device_type} eq 'light') {
-        $config_message{brightness} = JSON::true;
-        $config_message{brightness_scale} = 255;
-        $config_message{brightness_state_topic} = $state_topic;
-        $config_message{brightness_command_topic} = $command_topic;
-        $config_message{brightness_command_template} = '{{ value }}';
-        $config_message{brightness_value_template} = '{{ value_json.brightness }}';
+        # If the device is a light, include brightness settings
+        if ($config->{device_type} eq 'light') {
+            $config_message{brightness} = JSON::true;
+            $config_message{brightness_scale} = 255;
+            $config_message{brightness_state_topic} = $state_topic;
+            $config_message{brightness_command_topic} = $command_topic;
+            $config_message{brightness_command_template} = '{{ value }}';
+            $config_message{brightness_value_template} = '{{ value_json.brightness }}';
+        }
+
+        # Publish the configuration message to the /config topic
+        my $config_json = encode_json(\%config_message);
+        $mqtt->retain("homeassistant/$config->{device_type}/$ha_name/config", $config_json);
+
+        # Mark this config as sent
+        $sent_configs{$ha_name} = 1;
     }
-
-    # Publish the configuration message to the /config topic
-    my $config_json = encode_json(\%config_message);
-    $mqtt->retain("homeassistant/$config->{device_type}/$ha_name/config", $config_json);
 
     # Determine the correct state based on brightness for lights, or use ON/OFF for switches
     my $calculated_state;
