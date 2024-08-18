@@ -163,31 +163,31 @@
 
 # Dimmable Lights
 1FEDA:
-  # 30:
-  #   - ha_name: master_bath_ceiling_light
-  #     friendly_name: Master Bathroom Ceiling Light
-  #     state_topic: "homeassistant/light/master_bath_ceiling_light/state"
-  #     command_topic: "homeassistant/light/master_bath_ceiling_light/set"
-  #     value_template: "{{ value_json.state }}"
+  30:
+    - ha_name: master_bath_ceiling_light
+      friendly_name: Master Bathroom Ceiling Light
+      state_topic: "homeassistant/light/master_bath_ceiling_light/state"
+      command_topic: "homeassistant/light/master_bath_ceiling_light/set"
+      value_template: "{{ value_json.state }}"
+      device_class: light
+      device_type: light
+      brightness_state_topic: "homeassistant/light/master_bath_ceiling_light/state"
+      brightness_command_topic: "homeassistant/light/master_bath_ceiling_light/set"
+      brightness_value_template: "{{ value_json.brightness }}"
+      brightness_command_template: "{{ value }}"
+      payload_on: "ON"
+      payload_off: "OFF"
+  # 31:
+  #   - ha_name:  master_bath_lav_light
+  #     friendly_name: Master Bathroom Lavatory Light
+  #     state_topic: "homeassistant/light/master_bath_lav_light/state"
+  #     command_topic: "homeassistant/light/master_bath_lav_light/set"
   #     device_class: light
   #     device_type: light
-  #     brightness_state_topic: "homeassistant/light/master_bath_ceiling_light/state"
-  #     brightness_command_topic: "homeassistant/light/master_bath_ceiling_light/set"
-  #     brightness_value_template: "{{ value_json.brightness }}"
-  #     brightness_command_template: "{{ value }}"
-  #     payload_on: "ON"
-  #     payload_off: "OFF"
-  31:
-    - ha_name:  master_bath_lav_light
-      friendly_name: Master Bathroom Lavatory Light
-      state_topic: "homeassistant/light/master_bath_lav_light/state"
-      command_topic: "homeassistant/light/master_bath_lav_light/set"
-      device_class: light
-      device_type: light
-  32:
-    - ha_name:  master_bath_accent_light
-      friendly_name: Master Bathroom Accent Light
-      state_topic: "homeassistant/light/master_bath_accent_light/state"
-      command_topic: "homeassistant/light/master_bath_accent_light/set"
-      device_class: light
-      device_type: light
+  # 32:
+  #   - ha_name:  master_bath_accent_light
+  #     friendly_name: Master Bathroom Accent Light
+  #     state_topic: "homeassistant/light/master_bath_accent_light/state"
+  #     command_topic: "homeassistant/light/master_bath_accent_light/set"
+  #     device_class: light
+  #     device_type: light
