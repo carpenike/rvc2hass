@@ -271,20 +271,19 @@ sub publish_mqtt {
             name => $friendly_name,
             state_topic => $state_topic,
             command_topic => $command_topic,
-            #value_template => '{{ value_json.state }}',
             device_class => $config->{device_class},  # Include device_class if applicable
             unique_id => $ha_name,  # Ensure unique ID for the device
-            json_attributes_topic => $state_topic,
             payload_on => "ON",
-            payload_off => "OFF"
+            payload_off => "OFF",
+            supported_color_modes => ["brightness"]
         );
 
         # If the device is a light, include brightness settings
         if ($config->{device_type} eq 'light') {
             $config_message{brightness} = JSON::true;
             $config_message{brightness_scale} = 255;
-            $config_message{brightness_state_topic} = $config->{brightness_state_topic} || $state_topic;
-            $config_message{brightness_command_topic} = $config->{brightness_command_topic} || $command_topic;
+            $config_message{brightness_state_topic} = $state_topic;  # Colocate brightness and state
+            $config_message{brightness_command_topic} = $command_topic . "/brightness";  # Separate command topic for brightness
             $config_message{brightness_command_template} = '{{ value }}';
             $config_message{brightness_value_template} = '{{ value_json.brightness }}';
         }
@@ -310,20 +309,16 @@ sub publish_mqtt {
 
     # Prepare the state message
     my %state_message = (
-        state => $calculated_state
+        state => $calculated_state,
+        brightness => $result->{'calculated_brightness'} // 0
     );
-
-    # Add brightness to the state message if it's a light
-    if ($config->{device_type} eq 'light') {
-        $state_message{brightness} = $result->{'calculated_brightness'} // 0;
-    }
 
     # Publish the state message to the /state topic
     my $state_json = encode_json(\%state_message);
     $mqtt->retain($state_topic, $state_json);
 
     # Debug log the state message being published
-    log_debug("Published /state for device: $ha_name ($friendly_name) with state: " . encode_json(\%state_message));
+    log_debug("Published /state for device: $ha_name ($friendly_name) with state: $state_json");
 }
 
 sub decode {
