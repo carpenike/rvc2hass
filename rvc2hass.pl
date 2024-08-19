@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-no warnings 'exiting';  # Suppress 'exiting' warnings
+no warnings 'exiting';  # Suppress 'exiting' warnings for potential exit calls in loops
 use File::Temp qw(tempdir);
 use YAML::Tiny;
 use JSON qw(encode_json decode_json);
@@ -26,25 +26,25 @@ my $mqtt_port = $ENV{MQTT_PORT} || 1883;
 my $mqtt_username = $ENV{MQTT_USERNAME};
 my $mqtt_password = $ENV{MQTT_PASSWORD};
 my $max_retries = 5;
-my $retry_delay = 5;  # seconds
+my $retry_delay = 5;  # Time to wait between retry attempts in seconds
 my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
-my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it
-my %sent_configs;  # Track sent configurations
+my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it for watchdog interval
+my %sent_configs;  # Track sent configurations to avoid resending
 
-# Environment Pre-checks
+# Log environment variables for debugging purposes
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV));
 $ENV{MQTT_SIMPLE_ALLOW_INSECURE_LOGIN} = 1;  # Allow unencrypted connection with credentials
 
-# Initialize MQTT
+# Initialize MQTT connection
 my $mqtt = initialize_mqtt();
 
-# Start Watchdog if configured
+# Start Watchdog thread if configured
 start_watchdog(\$mqtt, $watchdog_interval) if $watchdog_interval;
 
-# Get the directory of the currently running script
+# Determine the script directory
 my $script_dir = dirname(__FILE__);
 
-# Load YAML files
+# Load YAML files containing specifications and device configurations
 my $yaml_specs = YAML::Tiny->read("$script_dir/config/rvc-spec.yml");
 my $decoders = $yaml_specs->[0] if $yaml_specs;
 
@@ -55,10 +55,10 @@ my $lookup = $yaml_lookup->[0] if $yaml_lookup;
 my $temp_dir = tempdir(CLEANUP => 1);
 my $undefined_dgns_file = "$temp_dir/undefined_dgns.log";
 
-# Log the temp directory path to journald
+# Log the creation of the temporary directory
 log_to_journald("Temporary directory created at: $temp_dir");
 
-# Notify systemd of successful startup
+# Notify systemd that the script has started successfully
 systemd_notify("READY=1");
 
 # Subscribe to Home Assistant's availability topic to monitor its state
@@ -67,20 +67,21 @@ $mqtt->subscribe('homeassistant/status' => sub {
     if ($message eq 'online') {
         log_to_journald("Home Assistant is online. Resending configurations...");
         foreach my $ha_name (keys %sent_configs) {
-            publish_mqtt($sent_configs{$ha_name}, undef, 1);
+            publish_mqtt($sent_configs{$ha_name}, undef, 1);  # Resend config on HA online
         }
     } elsif ($message eq 'offline') {
         log_to_journald("Home Assistant is offline.");
     }
 });
 
-# Open CAN bus data stream
+# Open CAN bus data stream using candump
 open my $file, '-|', 'candump', '-ta', 'can0' or die "Cannot start candump: $!\n";
 
-# Call the main processing subroutine
+# Indicate the start of CAN bus data processing
 log_to_journald("Script startup complete. Processing CAN bus data...");
 process_can_bus_data($file);
 
+# Initialize and connect to the MQTT broker, with retry logic
 sub initialize_mqtt {
     my $mqtt;
     my $success = 0;  # Flag to track if connection was successful
@@ -89,14 +90,14 @@ sub initialize_mqtt {
         try {
             my $connection_string = "$mqtt_host:$mqtt_port";
             
-            # Create the MQTT client
+            # Create and configure MQTT client
             log_to_journald("Connecting to $mqtt_host:$mqtt_port...");
             $mqtt = Net::MQTT::Simple->new($connection_string);
             log_to_journald("MQTT client created.");
             $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
             log_to_journald("MQTT login successful.");
 
-            # Subscribe to the test topic
+            # Test MQTT connection by subscribing and publishing to a test topic
             my $test_topic = "rvc2hass/connection_check";
             my $message_received;
             $mqtt->subscribe($test_topic => sub {
@@ -105,10 +106,10 @@ sub initialize_mqtt {
                 $message_received = $message;
             });
 
-            # Publish a test message to the topic
+            # Publish a test message to confirm connectivity
             $mqtt->publish($test_topic, "MQTT startup successful");
 
-            # Wait for the message to be received
+            # Wait for a confirmation message from the broker
             for (my $wait = 0; $wait < 5; $wait++) {
                 last if $message_received;
                 $mqtt->tick();  # Process incoming messages
@@ -118,10 +119,10 @@ sub initialize_mqtt {
             if ($message_received && $message_received eq "MQTT startup successful") {
                 log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
                 $success = 1;
-                last;  # Exit the loop upon successful connection
+                last;  # Exit loop on success
             } else {
                 log_to_journald("Failed to receive confirmation message on attempt $attempt.");
-                $mqtt = undef;  # Reset $mqtt to ensure it is not used if the connection fails
+                $mqtt = undef;  # Reset $mqtt on failure
             }
         }
         catch {
@@ -134,25 +135,25 @@ sub initialize_mqtt {
                 log_to_journald("Failed to connect to MQTT on attempt $attempt: $error_msg");
             }
             $mqtt = undef;  # Reset $mqtt on failure
-            sleep($retry_delay) if $attempt < $max_retries;
+            sleep($retry_delay) if $attempt < $max_retries;  # Delay before retrying
         };
     }
 
-    # Check if we successfully connected, otherwise exit
+    # Check if the connection was successful
     if ($success) {
-        return $mqtt;  # Return the MQTT object on successful connection
+        return $mqtt;  # Return MQTT object on success
     } else {
         log_to_journald("Failed to connect to MQTT broker after $max_retries attempts. Exiting.");
         die "Failed to connect to MQTT broker after $max_retries attempts.";
     }
 }
 
-# Subroutine to start the watchdog thread
+# Start the watchdog thread to monitor the system's health and MQTT connectivity
 sub start_watchdog {
     my $heartbeat_topic = "rvc2hass/heartbeat";
     my $heartbeat_received = 0;
 
-    # Subscribe to the heartbeat topic outside the loop
+    # Subscribe to the heartbeat topic to listen for confirmation messages
     $mqtt->subscribe($heartbeat_topic => sub {
         my ($topic, $message) = @_;
         log_debug("Received heartbeat on $heartbeat_topic: $message");
@@ -162,6 +163,7 @@ sub start_watchdog {
         }
     });
 
+    # Start a detached thread to handle watchdog functionality
     my $watchdog_thread = threads->create(sub {
         while (1) {
             my $mqtt_success = 0;
@@ -175,9 +177,9 @@ sub start_watchdog {
                 $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
                 log_debug("Published heartbeat message to MQTT");
 
-                # Wait for the confirmation message
+                # Wait for a confirmation message
                 for (my $wait = 0; $wait < 10; $wait++) {
-                    for (1..10) { $mqtt->tick(); sleep(0.1); }  # Check more frequently
+                    for (1..10) { $mqtt->tick(); sleep(0.1); }  # Check frequently
                     if ($heartbeat_received) {
                         log_debug("Heartbeat confirmation received.");
                         $mqtt_success = 1;
@@ -195,6 +197,7 @@ sub start_watchdog {
                 die "Error in watchdog loop: $_. Exiting.";
             };
 
+            # Notify systemd that the process is still alive
             if ($mqtt_success) {
                 log_to_journald("Notifying systemd watchdog.");
                 if (systemd_notify("WATCHDOG=1")) {
@@ -208,10 +211,10 @@ sub start_watchdog {
         }
     });
 
-    $watchdog_thread->detach();
+    $watchdog_thread->detach();  # Detach the thread to allow it to run independently
 }
 
-# Main subroutine to process CAN bus data
+# Process CAN bus data by reading and handling each line of input
 sub process_can_bus_data {
     my $can_file = shift;
 
@@ -223,20 +226,21 @@ sub process_can_bus_data {
     close $can_file;
 }
 
+# Process a single CAN bus packet, decoding and publishing to MQTT as needed
 sub process_packet {
     my @parts = @_;
     return unless @parts >= 5;  # Ensure there are enough parts to process
 
     my $can_id_hex = $parts[2];
-    my $binCanId = sprintf("%029b", hex($can_id_hex));  # Ensure leading zeros
-    my $dgn_bin = substr($binCanId, 4, 17);  # Extract bits 4 to 20
-    my $dgn = sprintf("%05X", oct("0b$dgn_bin"));  # DGN extraction
+    my $binCanId = sprintf("%029b", hex($can_id_hex));  # Ensure leading zeros for CAN ID
+    my $dgn_bin = substr($binCanId, 4, 17);  # Extract DGN from CAN ID
+    my $dgn = sprintf("%05X", oct("0b$dgn_bin"));  # Convert binary DGN to hex
 
     my $data_bytes = join '', @parts[4..$#parts];
     my $result = decode($dgn, $data_bytes);
 
     if ($result) {
-        my $instance = $result->{'instance'} // 'default';  # Use 'default' if instance is not found
+        my $instance = $result->{'instance'} // 'default';  # Default to 'default' if instance not found
 
         if (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{$instance}) {
             my $configs = $lookup->{$dgn}->{$instance};
@@ -248,7 +252,7 @@ sub process_packet {
                 }
             }
         } elsif (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{default}) {
-            # Use 'default' if no specific instance is found
+            # Handle default instance if specific instance not found
             my $configs = $lookup->{$dgn}->{default};
             foreach my $config (@$configs) {
                 publish_mqtt($config, $result);
@@ -262,30 +266,32 @@ sub process_packet {
     }
 }
 
+# Handle dimmable light packets, calculating brightness and command state
 sub handle_dimmable_light {
     my ($config, $result) = @_;
 
-    # Extract and calculate brightness and command state
+    # Calculate brightness and command state based on data
     my $brightness = $result->{'operating status (brightness)'};
     my $command = ($brightness == 100) ? 'on' : ($brightness > 0) ? 'dim' : 'off';
 
-    # Add these calculated values to the result hash to be passed to publish_mqtt
+    # Store calculated values in result hash for MQTT publishing
     $result->{'calculated_brightness'} = $brightness;
     $result->{'calculated_command'} = $command;
 
-    # Call the publish_mqtt function with the updated result
+    # Publish the updated result to MQTT
     publish_mqtt($config, $result);
 }
 
+# Publish MQTT messages, handling configuration and state updates
 sub publish_mqtt {
     my ($config, $result, $resend) = @_;
 
     my $ha_name = $config->{ha_name};
     my $friendly_name = $config->{friendly_name};
     my $state_topic = $config->{state_topic};
-    my $command_topic = $config->{command_topic};  # If command_topic is defined
+    my $command_topic = $config->{command_topic};  # Command topic if defined
 
-    # Only send the /config message if it hasn't been sent already or if we're resending
+    # Send /config message only if not already sent or if resending
     if ($resend || !exists $sent_configs{$ha_name}) {
         # Prepare the MQTT configuration message
         my %config_message = (
@@ -316,7 +322,7 @@ sub publish_mqtt {
         # Log that a new device's /config was pushed
         log_to_journald("Published /config for device: $ha_name ($friendly_name)");
 
-        # Mark this config as sent
+        # Track that this config has been sent
         $sent_configs{$ha_name} = $config;
     }
 
@@ -342,6 +348,7 @@ sub publish_mqtt {
     log_debug("Published /state for device: $ha_name ($friendly_name) with state: $state_json");
 }
 
+# Decode the DGN and data bytes to extract relevant parameters and values
 sub decode {
     my ($dgn, $data) = @_;
     my %result;
@@ -396,6 +403,7 @@ sub decode {
     return \%result;
 }
 
+# Extract bytes from the data using the specified byte range
 sub get_bytes {
     my ($data, $byterange) = @_;
 
@@ -412,6 +420,7 @@ sub get_bytes {
     return $bytes;
 }
 
+# Extract bits from the specified range within a byte
 sub get_bits {
     my ($bytes, $bitrange) = @_;
     return unless length($bytes);
@@ -425,12 +434,14 @@ sub get_bits {
     return substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
 }
 
+# Convert hexadecimal to binary representation
 sub hex2bin {
     my $hex = shift;
     return unpack("B8", pack("C", hex $hex)) if length($hex) == 2;
     return '';
 }
 
+# Convert values between different units
 sub convert_unit {
     my ($value, $unit, $type) = @_;
     my $new_value = $value;
@@ -482,16 +493,19 @@ sub convert_unit {
     return $new_value;
 }
 
+# Round a value to a specified precision
 sub round {
     my ($value, $precision) = @_;
     return int($value / $precision + 0.5) * $precision;
 }
 
+# Convert temperature from Celsius to Fahrenheit
 sub tempC2F {
     my ($tempC) = @_;
     return int((($tempC * 9 / 5) + 32) * 10) / 10;
 }
 
+# Log undefined DGN entries to a temporary file
 sub log_to_temp_file {
     my ($dgn) = @_;
 
@@ -520,6 +534,7 @@ sub log_to_temp_file {
     log_to_journald("Logged undefined DGN $dgn to temporary file: $undefined_dgns_file");
 }
 
+# Log messages to journald
 sub log_to_journald {
     my ($message) = @_;
 
@@ -528,6 +543,7 @@ sub log_to_journald {
     closelog();
 }
 
+# Send notifications to systemd
 sub systemd_notify {
     my ($state) = @_;
     my $socket_path = $ENV{NOTIFY_SOCKET} // return;
@@ -543,6 +559,7 @@ sub systemd_notify {
     close($socket);
 }
 
+# Log debug messages if debugging is enabled
 sub log_debug {
     my ($message) = @_;
     print "DEBUG: $message\n" if $debug;
