@@ -29,6 +29,7 @@ my $max_retries = 5;
 my $retry_delay = 5;  # seconds
 my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
 my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it
+my %sent_configs;  # Track sent configurations
 
 # Environment Pre-checks
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV));
@@ -57,18 +58,28 @@ my $undefined_dgns_file = "$temp_dir/undefined_dgns.log";
 # Log the temp directory path to journald
 log_to_journald("Temporary directory created at: $temp_dir");
 
-# Open CAN bus data stream
-open my $file, '-|', 'candump', '-ta', 'can0' or die "Cannot start candump: $!\n";
-
 # Notify systemd of successful startup
 systemd_notify("READY=1");
 
-while (my $line = <$file>) {
-    chomp $line;
-    my @parts = split ' ', $line;
-    process_packet(@parts);
-}
-close $file;
+# Subscribe to Home Assistant's availability topic to monitor its state
+$mqtt->subscribe('homeassistant/status' => sub {
+    my ($topic, $message) = @_;
+    if ($message eq 'online') {
+        log_to_journald("Home Assistant is online. Resending configurations...");
+        foreach my $ha_name (keys %sent_configs) {
+            publish_mqtt($sent_configs{$ha_name}, undef, 1);
+        }
+    } elsif ($message eq 'offline') {
+        log_to_journald("Home Assistant is offline.");
+    }
+});
+
+# Open CAN bus data stream
+open my $file, '-|', 'candump', '-ta', 'can0' or die "Cannot start candump: $!\n";
+
+# Call the main processing subroutine
+log_to_journald("Script startup complete. Processing CAN bus data...");
+process_can_bus_data($file);
 
 sub initialize_mqtt {
     my $mqtt;
@@ -200,6 +211,18 @@ sub start_watchdog {
     $watchdog_thread->detach();
 }
 
+# Main subroutine to process CAN bus data
+sub process_can_bus_data {
+    my $can_file = shift;
+
+    while (my $line = <$can_file>) {
+        chomp $line;
+        my @parts = split ' ', $line;
+        process_packet(@parts);
+    }
+    close $can_file;
+}
+
 sub process_packet {
     my @parts = @_;
     return unless @parts >= 5;  # Ensure there are enough parts to process
@@ -254,18 +277,16 @@ sub handle_dimmable_light {
     publish_mqtt($config, $result);
 }
 
-my %sent_configs;  # Track sent configurations
-
 sub publish_mqtt {
-    my ($config, $result) = @_;
+    my ($config, $result, $resend) = @_;
 
     my $ha_name = $config->{ha_name};
     my $friendly_name = $config->{friendly_name};
     my $state_topic = $config->{state_topic};
     my $command_topic = $config->{command_topic};  # If command_topic is defined
 
-    # Only send the /config message if it hasn't been sent already
-    unless ($sent_configs{$ha_name}) {
+    # Only send the /config message if it hasn't been sent already or if we're resending
+    if ($resend || !exists $sent_configs{$ha_name}) {
         # Prepare the MQTT configuration message
         my %config_message = (
             name => $friendly_name,
@@ -293,10 +314,10 @@ sub publish_mqtt {
         $mqtt->retain("homeassistant/$config->{device_type}/$ha_name/config", $config_json);
 
         # Log that a new device's /config was pushed
-        log_to_journald("Published /config for new device: $ha_name ($friendly_name)");
+        log_to_journald("Published /config for device: $ha_name ($friendly_name)");
 
         # Mark this config as sent
-        $sent_configs{$ha_name} = 1;
+        $sent_configs{$ha_name} = $config;
     }
 
     # Determine the correct state based on brightness for lights, or use ON/OFF for switches
