@@ -302,8 +302,7 @@ sub publish_mqtt {
             unique_id => $ha_name,  # Ensure unique ID for the device
             payload_on => "ON",
             payload_off => "OFF",
-            supported_color_modes => ["brightness"],
-            state_value_template: '{{ value_json.state }}'
+            supported_color_modes => ["brightness"]
         );
 
         # If the device is a light, include brightness settings
