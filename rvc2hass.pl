@@ -81,7 +81,7 @@ open my $file, '-|', 'candump', '-ta', 'can0' or die "Cannot start candump: $!\n
 log_to_journald("Script startup complete. Processing CAN bus data...");
 process_can_bus_data($file);
 
-# Initialize and connect to the MQTT broker, with retry logic
+# Initialize and connect to the MQTT broker, with retry logic and LWT
 sub initialize_mqtt {
     my $mqtt;
     my $success = 0;  # Flag to track if connection was successful
@@ -96,6 +96,13 @@ sub initialize_mqtt {
             log_to_journald("MQTT client created.");
             $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
             log_to_journald("MQTT login successful.");
+
+            # Set Last Will and Testament (LWT) for availability
+            $mqtt->last_will("rvc2hass/status", "offline", 1, 1);
+            log_to_journald("LWT set to 'offline' on rvc2hass/status");
+
+            # Publish "online" status after successful connection
+            $mqtt->retain("rvc2hass/status", "online");
 
             # Test MQTT connection by subscribing and publishing to a test topic
             my $test_topic = "rvc2hass/connection_check";
@@ -304,7 +311,14 @@ sub publish_mqtt {
             payload_on => "ON",
             payload_off => "OFF",
             supported_color_modes => ["brightness"],
-            state_value_template => '{{ value_json.state }}'
+            state_value_template => '{{ value_json.state }}',
+            availability => [
+                {
+                    topic => "rvc2hass/status",
+                    payload_available => "online",
+                    payload_not_available => "offline"
+                }
+            ]
         );
 
         # If the device is a light, include brightness settings
