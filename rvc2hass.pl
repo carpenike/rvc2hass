@@ -98,7 +98,7 @@ sub initialize_mqtt {
             log_to_journald("MQTT login successful.");
 
             # Set Last Will and Testament (LWT) for availability
-            $mqtt->last_will("rvc2hass/status", "offline", 1, 1);
+            $mqtt->set_will("rvc2hass/status", "offline", retain => 1, qos => 1);
             log_to_journald("LWT set to 'offline' on rvc2hass/status");
 
             # Publish "online" status after successful connection
