@@ -303,7 +303,7 @@ sub publish_mqtt {
             payload_on => "ON",
             payload_off => "OFF",
             supported_color_modes => ["brightness"],
-            state_value_template: "{{ value_json.state }}"
+            state_value_template: '{{ value_json.state }}'
         );
 
         # If the device is a light, include brightness settings
