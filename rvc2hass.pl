@@ -290,6 +290,7 @@ sub publish_mqtt {
     my $friendly_name = $config->{friendly_name};
     my $state_topic = $config->{state_topic};
     my $command_topic = $config->{command_topic};  # Command topic if defined
+    my $brightness_command_topic = $config->{brightness_command_topic};  # Brightness command topic if defined
 
     # Send /config message only if not already sent or if resending
     if ($resend || !exists $sent_configs{$ha_name}) {
@@ -311,7 +312,7 @@ sub publish_mqtt {
             $config_message{brightness} = JSON::true;
             $config_message{brightness_scale} = 255;
             $config_message{brightness_state_topic} = $state_topic;  # Colocate brightness and state
-            $config_message{brightness_command_topic} = $command_topic . "/brightness";  # Separate command topic for brightness
+            $config_message{brightness_command_topic} = $brightness_command_topic;  # Separate command topic for brightness
             $config_message{brightness_command_template} = '{{ value }}';
             $config_message{brightness_value_template} = '{{ value_json.brightness }}';
         }
