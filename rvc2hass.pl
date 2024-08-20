@@ -310,7 +310,7 @@ sub publish_mqtt {
         # If the device is a light, include brightness settings
         if ($config->{device_type} eq 'light') {
             $config_message{brightness} = JSON::true;
-            $config_message{brightness_scale} = 255;
+            $config_message{brightness_scale} = 100;
             $config_message{brightness_state_topic} = $state_topic;  # Colocate brightness and state
             $config_message{brightness_command_topic} = $brightness_command_topic;  # Separate command topic for brightness
             $config_message{brightness_command_template} = '{{ value }}';
