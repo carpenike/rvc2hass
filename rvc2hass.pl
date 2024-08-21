@@ -285,11 +285,15 @@ sub process_packet {
 
 # Handle dimmable light packets, calculating brightness and command state
 sub handle_dimmable_light {
-    my ($config, $result) = @_;
+    my ($config, $result) = @_;  # Declare $result within the subroutine's scope
 
+    # Log the data bytes and brightness
+    log_to_journald("Raw data bytes: $result->{data}, Decoded brightness: $result->{'operating status (brightness)'}", LOG_DEBUG);
+
+    # Ensure $result is defined
     if (defined $result) {
         my $brightness = $result->{'operating status (brightness)'} // 'undefined';
-        log_to_journald("Raw data bytes: " . $result->{data} . ", Decoded brightness: " . $brightness, LOG_DEBUG);
+        log_to_journald("Raw data bytes: $result->{data}, Decoded brightness: $brightness", LOG_DEBUG);
 
         my $command = ($brightness == 100) ? 'ON' : ($brightness > 0) ? 'ON' : 'OFF';
         log_to_journald("Calculated command: $command for device: $config->{ha_name}", LOG_DEBUG);
