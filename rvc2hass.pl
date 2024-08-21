@@ -387,53 +387,7 @@ sub publish_mqtt {
     $brightness_state_topic =~ s/\/{2,}/\//g if defined $brightness_state_topic;
     $brightness_command_topic =~ s/\/{2,}/\//g if defined $brightness_command_topic;
 
-    # Log the final MQTT topics for debugging
-    log_to_journald("Publishing MQTT for ha_name $ha_name with topics: state: $state_topic, command: $command_topic, brightness_state: $brightness_state_topic, brightness_command: $brightness_command_topic", LOG_DEBUG) if $debug;
-
-    # Send /config message only if not already sent or if resending
-    if ($resend || !exists $sent_configs{$ha_name}) {
-        # Prepare the MQTT configuration message
-        my %config_message = (
-            name => $friendly_name,
-            state_topic => $state_topic,
-            command_topic => $command_topic,
-            device_class => $config->{device_class},
-            unique_id => $ha_name,
-            payload_on => "ON",
-            payload_off => "OFF",
-            state_value_template => '{{ value_json.state }}',
-            availability => [
-                {
-                    topic => "rvc2hass/status",
-                    payload_available => "online",
-                    payload_not_available => "offline"
-                }
-            ]
-        );
-
-        # If the device is a light, include brightness settings
-        if ($config->{device_class} eq 'light') {
-            $config_message{supported_color_modes} = ["brightness"];
-            $config_message{brightness} = JSON::true;
-            $config_message{brightness_scale} = 100;
-            $config_message{brightness_state_topic} = $brightness_state_topic;
-            $config_message{brightness_command_topic} = $brightness_command_topic;
-            $config_message{brightness_command_template} = '{{ value }}';
-            $config_message{brightness_value_template} = '{{ value_json.brightness }}';
-        }
-
-        # Publish the configuration message to the /config topic
-        my $config_json = encode_json(\%config_message);
-        $mqtt->retain("homeassistant/$config->{device_class}/$ha_name/config", $config_json);
-
-        # Log that a new device's /config was pushed
-        log_to_journald("Published /config for device: $ha_name ($friendly_name)");
-
-        # Track that this config has been sent
-        $sent_configs{$ha_name} = $config;
-    }
-
-    # Determine the correct state based on brightness for lights, or use ON/OFF for switches
+    # Calculate the current state and brightness
     my $calculated_state;
     my $calculated_brightness = $result->{'operating status (brightness)'} // 0;  # Default to 0 if undefined
 
@@ -452,13 +406,27 @@ sub publish_mqtt {
         brightness => $calculated_brightness
     );
 
-    # Publish the state message to the /state topic
-    log_to_journald("Final state to publish: $calculated_state with brightness: $calculated_brightness", LOG_INFO);
-    my $state_json = encode_json(\%state_message);
-    $mqtt->retain($state_topic, $state_json);
+    # Track the last sent state and brightness for this device
+    my $last_state = $sent_configs{$ha_name}->{last_state} // '';
+    my $last_brightness = $sent_configs{$ha_name}->{last_brightness} // '';
 
-    # Debug log the state message being published if debugging is enabled
-    log_to_journald("Published /state for device: $ha_name ($friendly_name) with state: $state_json", LOG_DEBUG) if $debug;
+    # Check if the state or brightness has changed
+    if ($resend || $calculated_state ne $last_state || $calculated_brightness != $last_brightness) {
+        log_to_journald("State or brightness has changed for $ha_name. Publishing update.", LOG_INFO);
+
+        # Publish the state message to the /state topic
+        my $state_json = encode_json(\%state_message);
+        $mqtt->retain($state_topic, $state_json);
+
+        # Debug log the state message being published if debugging is enabled
+        log_to_journald("Published /state for device: $ha_name ($friendly_name) with state: $state_json", LOG_DEBUG) if $debug;
+
+        # Update the last sent state and brightness
+        $sent_configs{$ha_name}->{last_state} = $calculated_state;
+        $sent_configs{$ha_name}->{last_brightness} = $calculated_brightness;
+    } else {
+        log_to_journald("No change in state or brightness for $ha_name. Skipping publication.", LOG_INFO);
+    }
 }
 
 # Function to replace template variables in topics
