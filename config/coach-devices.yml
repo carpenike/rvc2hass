@@ -27,7 +27,7 @@ templates:
     - ha_name: master_bath_ceiling_light
       friendly_name: Master Bathroom Ceiling Light
       <<: *dimmable_light_template
-
+1FEDB:
   31:
     - ha_name:  master_bath_lav_light
       friendly_name: Master Bathroom Lavatory Light
@@ -36,6 +36,7 @@ templates:
     - ha_name:  master_bath_accent_light
       friendly_name: Master Bathroom Accent Light
       <<: *dimmable_light_template
+
 # 17F00:
 #   default:
 #     - ha_name: "general_reset"
