@@ -96,6 +96,7 @@ sub initialize_mqtt {
     my $success = 0;  # Flag to track if connection was successful
     
     for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
+        no warnings 'exiting';  # Suppress 'exiting' warnings within this scope
         try {
             my $connection_string = "$mqtt_host:$mqtt_port";
             
@@ -169,7 +170,6 @@ sub start_watchdog {
     my $heartbeat_topic = "rvc2hass/heartbeat";
     my $heartbeat_received = 0;
     my $keep_running = 1;
-    no warnings 'exiting';  # Disable 'exiting' warnings for the entire subroutine
 
     # Subscribe to the heartbeat topic to listen for confirmation messages
     $mqtt->subscribe($heartbeat_topic => sub {
