@@ -252,9 +252,11 @@ sub process_packet {
         if (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{$instance}) {
             my $configs = $lookup->{$dgn}->{$instance};
             foreach my $config (@$configs) {
-                if ($config->{device_type} eq 'light') {
+                if ($config->{device_class} eq 'light') {
+                    # Handle dimmable light specifically
                     handle_dimmable_light($config, $result);
                 } else {
+                    # Handle non-dimmable lights or other devices
                     publish_mqtt($config, $result);
                 }
             }
@@ -262,7 +264,11 @@ sub process_packet {
             # Handle default instance if specific instance not found
             my $configs = $lookup->{$dgn}->{default};
             foreach my $config (@$configs) {
-                publish_mqtt($config, $result);
+                if ($config->{device_class} eq 'light') {
+                    handle_dimmable_light($config, $result);
+                } else {
+                    publish_mqtt($config, $result);
+                }
             }
         } else {
             log_debug("No matching config found for DGN $dgn and instance $instance");
@@ -279,7 +285,7 @@ sub handle_dimmable_light {
 
     # Calculate brightness and command state based on data
     my $brightness = $result->{'operating status (brightness)'};
-    my $command = ($brightness == 100) ? 'on' : ($brightness > 0) ? 'dim' : 'off';
+    my $command = ($brightness == 100) ? 'ON' : ($brightness > 0) ? 'ON' : 'OFF';
 
     # Store calculated values in result hash for MQTT publishing
     $result->{'calculated_brightness'} = $brightness;
@@ -295,9 +301,12 @@ sub publish_mqtt {
 
     my $ha_name = $config->{ha_name};
     my $friendly_name = $config->{friendly_name};
-    my $state_topic = $config->{state_topic};
-    my $command_topic = $config->{command_topic};  # Command topic if defined
-    my $brightness_command_topic = $config->{brightness_command_topic};  # Brightness command topic if defined
+
+    # Expand templates
+    my $state_topic = expand_template($config->{state_topic}, $ha_name);
+    my $command_topic = expand_template($config->{command_topic}, $ha_name);
+    my $brightness_state_topic = expand_template($config->{brightness_state_topic}, $ha_name);
+    my $brightness_command_topic = expand_template($config->{brightness_command_topic}, $ha_name);
 
     # Send /config message only if not already sent or if resending
     if ($resend || !exists $sent_configs{$ha_name}) {
@@ -310,7 +319,6 @@ sub publish_mqtt {
             unique_id => $ha_name,  # Ensure unique ID for the device
             payload_on => "ON",
             payload_off => "OFF",
-            supported_color_modes => ["brightness"],
             state_value_template => '{{ value_json.state }}',
             availability => [
                 {
@@ -322,10 +330,11 @@ sub publish_mqtt {
         );
 
         # If the device is a light, include brightness settings
-        if ($config->{device_type} eq 'light') {
+        if ($config->{device_class} eq 'light') {
+            $config_message{supported_color_modes} = ["brightness"];
             $config_message{brightness} = JSON::true;
             $config_message{brightness_scale} = 100;
-            $config_message{brightness_state_topic} = $state_topic;  # Colocate brightness and state
+            $config_message{brightness_state_topic} = $brightness_state_topic;  # Colocate brightness and state
             $config_message{brightness_command_topic} = $brightness_command_topic;  # Separate command topic for brightness
             $config_message{brightness_command_template} = '{{ value }}';
             $config_message{brightness_value_template} = '{{ value_json.brightness }}';
@@ -333,7 +342,7 @@ sub publish_mqtt {
 
         # Publish the configuration message to the /config topic
         my $config_json = encode_json(\%config_message);
-        $mqtt->retain("homeassistant/$config->{device_type}/$ha_name/config", $config_json);
+        $mqtt->retain("homeassistant/$config->{device_class}/$ha_name/config", $config_json);
 
         # Log that a new device's /config was pushed
         log_to_journald("Published /config for device: $ha_name ($friendly_name)");
@@ -344,9 +353,9 @@ sub publish_mqtt {
 
     # Determine the correct state based on brightness for lights, or use ON/OFF for switches
     my $calculated_state;
-    if ($config->{device_type} eq 'light') {
+    if ($config->{device_class} eq 'light') {
         $calculated_state = ($result->{'calculated_brightness'} && $result->{'calculated_brightness'} > 0) ? 'ON' : 'OFF';
-    } elsif ($config->{device_type} eq 'switch') {
+    } elsif ($config->{device_class} eq 'switch') {
         $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
     }
 
@@ -362,6 +371,13 @@ sub publish_mqtt {
 
     # Debug log the state message being published
     log_debug("Published /state for device: $ha_name ($friendly_name) with state: $state_json");
+}
+
+# Function to replace template variables in topics
+sub expand_template {
+    my ($template, $ha_name) = @_;
+    $template =~ s/\{\{ ha_name \}\}/$ha_name/g;
+    return $template;
 }
 
 # Decode the DGN and data bytes to extract relevant parameters and values

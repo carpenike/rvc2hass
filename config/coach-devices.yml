@@ -1,4 +1,40 @@
 ---
+## This configuration file matches a 2021 Entegra Aspire 44R. Use the template section to define parameters that should apply across all of the devices, and then update the sections below to match the devices in your coach.
+
+## The first field is the DGN number. Check the logs from the script to determine which DGNs are being reported by your coach. The second field is the instance number. This is the number that is used to differentiate between multiple devices of the same type.
+## The third field is the friendly name. This is the name that will be displayed in Home Assistant. The fourth field is the Home Assistant name. This is the name that will be used in the MQTT topics.
+## The fifth field is the state topic. This is the MQTT topic that will be used to report the state of the device. The sixth field is the value template. This is the template that will be used to extract the state from the MQTT message.
+## The seventh field is the device class. This is the class that will be used in Home Assistant. The eighth field is the device type. This is the type that will be used in Home Assistant.
+
+# Template section for reusable parameters across the devices
+templates:
+  dimmable_light_template: &dimmable_light_template
+    state_topic: "homeassistant/light/{{ ha_name }}/state"
+    command_topic: "homeassistant/light/{{ ha_name }}/set"
+    value_template: "{{ value_json.state }}"
+    device_class: light
+    brightness_state_topic: "homeassistant/light/{{ ha_name }}/brightness"
+    brightness_command_topic: "homeassistant/light/{{ ha_name }}/brightness/set"
+    brightness_value_template: "{{ value_json.brightness }}"
+    brightness_command_template: "{{ value }}"
+    payload_on: "ON"
+    payload_off: "OFF"
+
+# Dimmable Lights
+1FEDA:
+  30:
+    - ha_name: master_bath_ceiling_light
+      friendly_name: Master Bathroom Ceiling Light
+      <<: *dimmable_light_template
+
+  31:
+    - ha_name:  master_bath_lav_light
+      friendly_name: Master Bathroom Lavatory Light
+      <<: *dimmable_light_template
+  32:
+    - ha_name:  master_bath_accent_light
+      friendly_name: Master Bathroom Accent Light
+      <<: *dimmable_light_template
 # 17F00:
 #   default:
 #     - ha_name: "general_reset"
@@ -160,34 +196,3 @@
 #       value_template: "{{ value_json.start_config_command }}"
 #       device_class: sensor
 #       device_type: sensor
-
-# Dimmable Lights
-1FEDA:
-  30:
-    - ha_name: master_bath_ceiling_light
-      friendly_name: Master Bathroom Ceiling Light
-      state_topic: "homeassistant/light/master_bath_ceiling_light/state"
-      command_topic: "homeassistant/light/master_bath_ceiling_light/set"
-      value_template: "{{ value_json.state }}"
-      device_class: light
-      device_type: light
-      brightness_state_topic: "homeassistant/light/master_bath_ceiling_light/brightness"
-      brightness_command_topic: "homeassistant/light/master_bath_ceiling_light/brightness/set"
-      brightness_value_template: "{{ value_json.brightness }}"
-      brightness_command_template: "{{ value }}"
-      payload_on: "ON"
-      payload_off: "OFF"
-  # 31:
-  #   - ha_name:  master_bath_lav_light
-  #     friendly_name: Master Bathroom Lavatory Light
-  #     state_topic: "homeassistant/light/master_bath_lav_light/state"
-  #     command_topic: "homeassistant/light/master_bath_lav_light/set"
-  #     device_class: light
-  #     device_type: light
-  # 32:
-  #   - ha_name:  master_bath_accent_light
-  #     friendly_name: Master Bathroom Accent Light
-  #     state_topic: "homeassistant/light/master_bath_accent_light/state"
-  #     command_topic: "homeassistant/light/master_bath_accent_light/set"
-  #     device_class: light
-  #     device_type: light
