@@ -19,6 +19,7 @@ templates:
     brightness_command_template: "{{ value }}"
     payload_on: "ON"
     payload_off: "OFF"
+    state_value_template: "{{ value_json.state }}"
 
 # Dimmable Lights
 1FEDA:
