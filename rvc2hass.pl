@@ -612,9 +612,26 @@ sub log_missing_config {
         # Lookup DGN information from the loaded decoders hash
         my $dgn_info = $decoders->{$dgn};
         my $dgn_name = $dgn_info->{name} // "Unknown DGN";
-        my $dgn_description = $dgn_info->{comment} // "No description available";
 
-        log_to_journald("No matching config found for DGN $dgn ($dgn_name): $dgn_description and instance $instance", LOG_WARNING);
+        # Check if a description is available
+        my $dgn_description = $dgn_info->{comment};
+
+        # Check if instance has a readable name
+        my $instance_value = $instance;
+        if (exists $dgn_info->{parameters}) {
+            foreach my $param (@{$dgn_info->{parameters}}) {
+                if ($param->{name} eq 'instance' && exists $param->{values}{$instance}) {
+                    $instance_value = "$instance ($param->{values}{$instance})";
+                    last;
+                }
+            }
+        }
+
+        # Construct the log message
+        my $log_message = "No matching config found for DGN $dgn ($dgn_name) and instance $instance_value";
+        $log_message .= ": $dgn_description" if $dgn_description;
+
+        log_to_journald($log_message, LOG_WARNING);
     }
 }
 
