@@ -61,6 +61,10 @@ foreach my $dgn (keys %$lookup) {
     next if $dgn eq 'templates';
 
     foreach my $instance (keys %{$lookup->{$dgn}}) {
+
+        # If the key is 'default', treat it as a special instance case
+        my $effective_instance = ($instance eq 'default') ? '' : $instance;
+
         foreach my $config (@{$lookup->{$dgn}->{$instance}}) {
 
             # Flatten the configuration by merging the template values
@@ -81,7 +85,7 @@ foreach my $dgn (keys %$lookup) {
             if ($command_topic) {
                 $mqtt->subscribe($command_topic => sub {
                     my ($topic, $message) = @_;
-                    process_mqtt_command($config, $message, 'state');
+                    process_mqtt_command($effective_instance, $config, $message, 'state');
                 });
             } else {
                 log_to_journald("Failed to expand command topic for ha_name $config->{ha_name}", LOG_ERR);
@@ -93,7 +97,7 @@ foreach my $dgn (keys %$lookup) {
                 if ($brightness_command_topic) {
                     $mqtt->subscribe($brightness_command_topic => sub {
                         my ($topic, $message) = @_;
-                        process_mqtt_command($config, $message, 'brightness');
+                        process_mqtt_command($effective_instance, $config, $message, 'brightness');
                     });
                 } else {
                     log_to_journald("Failed to expand brightness command topic for ha_name $config->{ha_name}", LOG_ERR);
@@ -117,14 +121,7 @@ exit(0);
 
 # Process incoming MQTT commands and convert to CAN bus messages
 sub process_mqtt_command {
-    my ($config, $message, $command_type) = @_;
-    my $instance = $config->{instance};
-
-    unless (defined $instance) {
-        log_to_journald("Undefined instance for ha_name $config->{ha_name}", LOG_ERR);
-        return;
-    }
-
+    my ($instance, $config, $message, $command_type) = @_;
     my $command = 0;
     my $brightness = 125;  # Default brightness
 
@@ -274,7 +271,6 @@ sub initialize_mqtt {
 sub start_watchdog {
     my $heartbeat_topic = "hass2rvc/heartbeat";
     my $heartbeat_received = 0;
-    my $keep_running = 1;
 
     # Subscribe to the heartbeat topic to listen for confirmation messages
     $mqtt->subscribe($heartbeat_topic => sub {
