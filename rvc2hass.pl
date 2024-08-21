@@ -495,7 +495,7 @@ sub decode {
         }
     }
 
-    log_to_journald("Decoded values for DGN $dgn: " . encode_json(\%result), LOG_DEBUG);
+    # log_to_journald("Decoded values for DGN $dgn: " . encode_json(\%result), LOG_DEBUG);
 
     $result{instance} = $result{instance} // undef;
 
