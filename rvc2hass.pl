@@ -17,7 +17,7 @@ use Sys::Syslog qw(:standard :macros);
 use Getopt::Long;
 
 # Command-line options
-my $debug = 0;
+my $debug = 1;
 GetOptions("debug" => \$debug);
 
 # Configuration Variables
@@ -317,6 +317,9 @@ sub publish_mqtt {
         return;
     }
 
+    # Log the final MQTT topics for debugging
+    log_debug("Publishing MQTT for ha_name $ha_name with topics: state: $state_topic, command: $command_topic");
+
     # Send /config message only if not already sent or if resending
     if ($resend || !exists $sent_configs{$ha_name}) {
         # Prepare the MQTT configuration message
@@ -388,15 +391,18 @@ sub expand_template {
 
     # Check if the template is defined and non-empty
     if (!defined $template || $template eq '') {
-        log_to_journald("Undefined or empty template for ha_name: $ha_name");
-        return '';  # Return an empty string to avoid warnings
+        log_to_journald("Undefined or empty template provided for ha_name: $ha_name");
+        return '';  # Return an empty string to avoid further issues
     }
 
-    # Perform the substitution, replacing the `{{ ha_name }}` placeholder
+    # Perform the substitution
     $template =~ s/\{\{ ha_name \}\}/$ha_name/g;
+    
+    # Log the expanded template for debugging
+    log_debug("Expanded template for ha_name $ha_name: $template");
+    
     return $template;
 }
-
 
 # Decode the DGN and data bytes to extract relevant parameters and values
 sub decode {
