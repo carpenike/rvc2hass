@@ -13,7 +13,7 @@ templates:
     command_topic: "homeassistant/light/{{ ha_name }}/set"
     value_template: "{{ value_json.state }}"
     device_class: light
-    brightness_state_topic: "homeassistant/light/{{ ha_name }}/brightness"
+    brightness_state_topic: "homeassistant/light/{{ ha_name }}/state"
     brightness_command_topic: "homeassistant/light/{{ ha_name }}/brightness/set"
     brightness_value_template: "{{ value_json.brightness }}"
     brightness_command_template: "{{ value }}"
