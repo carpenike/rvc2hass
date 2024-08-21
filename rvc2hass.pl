@@ -306,51 +306,51 @@ sub process_packet {
 # Handle dimmable light packets, calculating brightness and command state
 sub handle_dimmable_light {
     my ($config, $result) = @_;
-    
+
     # Ensure $config and $result are defined
     unless (defined $config && defined $result) {
         log_to_journald("Undefined config or result in handle_dimmable_light.", LOG_ERR);
         return;
     }
-    
+
     # Log incoming result data if debugging is enabled
     log_to_journald("Received result in handle_dimmable_light: " . encode_json($result), LOG_DEBUG) if $debug;
-    
-    # Extract brightness from result
-    my $brightness = $result->{'operating status (brightness)'};
-    
+
+    # Extract brightness from result, handling both 'operating status (brightness)' and 'desired level'
+    my $brightness = $result->{'operating status (brightness)'} // $result->{'desired level'};
+
     # Log extracted brightness if debugging is enabled
     log_to_journald("Extracted brightness: " . (defined $brightness ? $brightness : 'undefined'), LOG_DEBUG) if $debug;
-    
+
     # Validate brightness value
     if (defined $brightness && $brightness =~ /^\d+(\.\d+)?$/) {
         # Convert brightness to integer between 0 and 100
         $brightness = int($brightness);
         $brightness = 100 if $brightness > 100;
         $brightness = 0 if $brightness < 0;
-        
+
         # Determine command based on brightness
         my $command = ($brightness > 0) ? 'ON' : 'OFF';
-        
+
         # Log calculated values if debugging is enabled
         log_to_journald("Calculated command: $command, brightness: $brightness for device: $config->{ha_name}", LOG_DEBUG) if $debug;
-        
+
         # Add calculated values to result
         $result->{'calculated_brightness'} = $brightness;
         $result->{'calculated_command'} = $command;
-        
+
     } else {
         # Handle invalid or undefined brightness
         log_to_journald("Invalid or undefined brightness value for device: $config->{ha_name}", LOG_WARNING);
-        
+
         # Set default values
         $result->{'calculated_brightness'} = 0;
         $result->{'calculated_command'} = 'OFF';
     }
-    
+
     # Log result before publishing if debugging is enabled
     log_to_journald("Result before publishing: " . encode_json($result), LOG_DEBUG) if $debug;
-    
+
     # Publish MQTT message
     publish_mqtt($config, $result);
 }
@@ -394,7 +394,9 @@ sub publish_mqtt {
 
     # Calculate the current state and brightness
     my $calculated_state;
-    my $calculated_brightness = $result->{'operating status (brightness)'} // 0;  # Default to 0 if undefined
+
+    # Handle both 'operating status (brightness)' and 'desired level'
+    my $calculated_brightness = $result->{'operating status (brightness)'} // $result->{'desired level'} // 0;  # Default to 0 if undefined
 
     if ($config->{device_class} eq 'light') {
         $calculated_state = ($calculated_brightness > 0) ? 'ON' : 'OFF';
@@ -484,8 +486,9 @@ sub decode {
 
         $result{$name} = $value;
 
-        if (defined $unit && lc($unit) eq 'deg c') {
-            $result{$name . " F"} = tempC2F($value) if $value ne 'n/a';
+        # Handle 'desired level' similarly to 'operating status (brightness)'
+        if ($name eq 'desired level') {
+            $result{'operating status (brightness)'} = $value;
         }
 
         if ($values) {
