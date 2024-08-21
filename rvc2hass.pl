@@ -285,12 +285,11 @@ sub process_packet {
 
 # Handle dimmable light packets, calculating brightness and command state
 sub handle_dimmable_light {
-    my ($config, $result) = @_;  # Ensure $result is passed correctly
+    my ($config, $result) = @_;
 
-    # Ensure $result is defined
     if (defined $result) {
         my $brightness = $result->{'operating status (brightness)'} // 'undefined';
-        log_to_journald("Raw data bytes: $result->{data}, Decoded brightness: $brightness", LOG_DEBUG);
+        log_to_journald("Raw data bytes: " . $result->{data} . ", Decoded brightness: " . $brightness, LOG_DEBUG);
 
         my $command = ($brightness == 100) ? 'ON' : ($brightness > 0) ? 'ON' : 'OFF';
         log_to_journald("Calculated command: $command for device: $config->{ha_name}", LOG_DEBUG);
@@ -298,7 +297,7 @@ sub handle_dimmable_light {
         $result->{'calculated_brightness'} = $brightness;
         $result->{'calculated_command'} = $command;
 
-        publish_mqtt($config, $result);  # Pass $result to publish_mqtt subroutine
+        publish_mqtt($config, $result);
         log_to_journald("Published state update for $config->{ha_name}: $command", LOG_INFO);
     } else {
         log_to_journald("No result data provided for light handling.", LOG_WARNING);
