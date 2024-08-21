@@ -52,7 +52,12 @@ my $lookup = LoadFile("$script_dir/config/coach-devices.yml");
 # Subscribe to MQTT topics for all devices
 foreach my $dgn (keys %$lookup) {
     foreach my $instance (keys %{$lookup->{$dgn}}) {
-        foreach my $config (@{$lookup->{$dgn}->{$instance}}) {
+        my $config_entries = $lookup->{$dgn}->{$instance};
+
+        # Ensure the config_entries is always treated as an array
+        $config_entries = [$config_entries] unless ref($config_entries) eq 'ARRAY';
+
+        foreach my $config (@$config_entries) {
 
             # Flatten the configuration by merging the template values
             if (exists $config->{'<<'}) {
