@@ -450,6 +450,8 @@ sub decode {
 
     log_to_journald("Decoder found for DGN $dgn: " . encode_json($decoder), LOG_DEBUG);
 
+    log_to_journald("Raw data bytes: $data, Decoded brightness: $result->{'operating status (brightness)'}", LOG_DEBUG);
+
     my @parameters;
     push(@parameters, @{$decoders->{$decoder->{alias}}->{parameters}}) if ($decoder->{alias});
     push(@parameters, @{$decoder->{parameters}}) if ($decoder->{parameters});
