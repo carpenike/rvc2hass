@@ -285,10 +285,7 @@ sub process_packet {
 
 # Handle dimmable light packets, calculating brightness and command state
 sub handle_dimmable_light {
-    my ($config, $result) = @_;  # Declare $result within the subroutine's scope
-
-    # Log the data bytes and brightness
-    log_to_journald("Raw data bytes: $result->{data}, Decoded brightness: $result->{'operating status (brightness)'}", LOG_DEBUG);
+    my ($config, $result) = @_;  # Ensure $result is passed correctly
 
     # Ensure $result is defined
     if (defined $result) {
@@ -301,17 +298,16 @@ sub handle_dimmable_light {
         $result->{'calculated_brightness'} = $brightness;
         $result->{'calculated_command'} = $command;
 
-        publish_mqtt($config, $result);
+        publish_mqtt($config, $result);  # Pass $result to publish_mqtt subroutine
         log_to_journald("Published state update for $config->{ha_name}: $command", LOG_INFO);
     } else {
         log_to_journald("No result data provided for light handling.", LOG_WARNING);
     }
 }
 
-
 # Publish MQTT messages, handling configuration and state updates
 sub publish_mqtt {
-    my ($config, $result, $resend) = @_;
+    my ($config, $result, $resend) = @_;  # Ensure $result is passed correctly
 
     # Flatten the configuration by merging the template values
     if (exists $config->{'<<'}) {
