@@ -52,42 +52,43 @@ my $lookup = LoadFile("$script_dir/config/coach-devices.yml");
 # Subscribe to MQTT topics for all devices
 foreach my $dgn (keys %$lookup) {
     foreach my $instance (keys %{$lookup->{$dgn}}) {
-        my $config = $lookup->{$dgn}->{$instance};
+        foreach my $config (@{$lookup->{$dgn}->{$instance}}) {
 
-        # Flatten the configuration by merging the template values
-        if (exists $config->{'<<'}) {
-            my %merged_config = (%{$config->{'<<'}}, %$config);
-            $config = \%merged_config;
-            delete $config->{'<<'};
-        }
+            # Flatten the configuration by merging the template values
+            if (exists $config->{'<<'}) {
+                my %merged_config = (%{$config->{'<<'}}, %$config);
+                $config = \%merged_config;
+                delete $config->{'<<'};
+            }
 
-        # Ensure that ha_name is defined before proceeding
-        unless (defined $config->{ha_name}) {
-            log_to_journald("Missing ha_name for DGN $dgn, instance $instance", LOG_ERR);
-            next;
-        }
+            # Ensure that ha_name is defined before proceeding
+            unless (defined $config->{ha_name}) {
+                log_to_journald("Missing ha_name for DGN $dgn, instance $instance", LOG_ERR);
+                next;
+            }
 
-        # Expand and subscribe to the command topic
-        my $command_topic = expand_template($config->{command_topic}, $config->{ha_name});
-        if ($command_topic) {
-            $mqtt->subscribe($command_topic => sub {
-                my ($topic, $message) = @_;
-                process_mqtt_command($config, $message, 'state');
-            });
-        } else {
-            log_to_journald("Failed to expand command topic for ha_name $config->{ha_name}", LOG_ERR);
-        }
-
-        # If the device is dimmable, expand and subscribe to the brightness command topic
-        if ($config->{dimmable}) {
-            my $brightness_command_topic = expand_template($config->{brightness_command_topic}, $config->{ha_name});
-            if ($brightness_command_topic) {
-                $mqtt->subscribe($brightness_command_topic => sub {
+            # Expand and subscribe to the command topic
+            my $command_topic = expand_template($config->{command_topic}, $config->{ha_name});
+            if ($command_topic) {
+                $mqtt->subscribe($command_topic => sub {
                     my ($topic, $message) = @_;
-                    process_mqtt_command($config, $message, 'brightness');
+                    process_mqtt_command($config, $message, 'state');
                 });
             } else {
-                log_to_journald("Failed to expand brightness command topic for ha_name $config->{ha_name}", LOG_ERR);
+                log_to_journald("Failed to expand command topic for ha_name $config->{ha_name}", LOG_ERR);
+            }
+
+            # If the device is dimmable, expand and subscribe to the brightness command topic
+            if ($config->{dimmable}) {
+                my $brightness_command_topic = expand_template($config->{brightness_command_topic}, $config->{ha_name});
+                if ($brightness_command_topic) {
+                    $mqtt->subscribe($brightness_command_topic => sub {
+                        my ($topic, $message) = @_;
+                        process_mqtt_command($config, $message, 'brightness');
+                    });
+                } else {
+                    log_to_journald("Failed to expand brightness command topic for ha_name $config->{ha_name}", LOG_ERR);
+                }
             }
         }
     }
