@@ -15,7 +15,7 @@ use threads;
 use threads::shared;
 
 # Command-line options
-my $debug = 1;
+my $debug = 0;
 my $log_level = LOG_INFO;
 GetOptions("debug" => \$debug, "log-level=i" => \$log_level);
 
@@ -188,7 +188,7 @@ sub send_can_command {
         log_to_journald("CAN bus command: cansend $can_interface $hexCanId#$hexData", LOG_INFO);
 
         # Uncomment the line below to enable CAN bus sending
-        # system("cansend $can_interface $hexCanId#$hexData") if (!$debug);
+        system("cansend $can_interface $hexCanId#$hexData") if (!$debug);
     }
 }
 
