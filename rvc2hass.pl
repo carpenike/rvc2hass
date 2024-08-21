@@ -408,28 +408,28 @@ sub publish_mqtt {
         $sent_configs{$ha_name} = $config;
     }
 
+    # Additional logging to trace the brightness and state before publishing
+    my $calculated_brightness = $result->{'calculated_brightness'} // 'undefined';
+    log_to_journald("Brightness value before state calculation: $calculated_brightness", LOG_DEBUG);
+
     # Determine the correct state based on brightness for lights, or use ON/OFF for switches
     my $calculated_state;
     if ($config->{device_class} eq 'light') {
-        $calculated_state = ($result->{'calculated_brightness'} && $result->{'calculated_brightness'} > 0) ? 'ON' : 'OFF';
+        $calculated_state = ($calculated_brightness && $calculated_brightness > 0) ? 'ON' : 'OFF';
     } elsif ($config->{device_class} eq 'switch') {
         $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
     }
 
-    # Log the contents of the result hash to trace brightness and state
-    log_to_journald("Result contents: " . encode_json($result), LOG_DEBUG);
-
-    # Additional logging to trace the brightness and state before publishing
-    log_to_journald("Calculated state: $calculated_state for ha_name: $ha_name with brightness: " . ($result->{'calculated_brightness'} // 'undefined'), LOG_DEBUG);
+    log_to_journald("Calculated state: $calculated_state for ha_name: $ha_name with brightness: $calculated_brightness", LOG_DEBUG);
 
     # Prepare the state message
     my %state_message = (
         state => $calculated_state,
-        brightness => $result->{'calculated_brightness'} // 'undefined'
+        brightness => $calculated_brightness
     );
 
     # Publish the state message to the /state topic
-    log_to_journald("Final state to publish: $calculated_state with brightness: " . ($result->{'calculated_brightness'} // 'undefined'), LOG_INFO);
+    log_to_journald("Final state to publish: $calculated_state with brightness: $calculated_brightness", LOG_INFO);
     my $state_json = encode_json(\%state_message);
     $mqtt->retain($state_topic, $state_json);
 
