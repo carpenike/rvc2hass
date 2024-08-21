@@ -183,6 +183,7 @@ sub start_watchdog {
     my $watchdog_thread = threads->create(sub {
         while ($keep_running) {
             my $mqtt_success = 0;
+            no warnings 'exiting';  # Suppress exiting warnings here
 
             try {
                 # Reset the heartbeat_received flag
