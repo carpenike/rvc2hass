@@ -32,7 +32,7 @@ my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0
 my %sent_configs;  # Track sent configurations to avoid resending
 
 # Log environment variables for debugging purposes
-log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV));
+log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV), LOG_DEBUG);
 $ENV{MQTT_SIMPLE_ALLOW_INSECURE_LOGIN} = 1;  # Allow unencrypted connection with credentials
 
 # Initialize MQTT connection
@@ -50,14 +50,14 @@ my $lookup = LoadFile("$script_dir/config/coach-devices.yml");
 
 # Debug: Print out the lookup structure to verify template inclusion
 use Data::Dumper;
-log_to_journald("Loaded YAML structure: " . Dumper($lookup));
+log_to_journald("Loaded YAML structure: " . Dumper($lookup), LOG_DEBUG);
 
 # Create a temporary directory for undefined DGNs
 my $temp_dir = tempdir(CLEANUP => 1);
 my $undefined_dgns_file = "$temp_dir/undefined_dgns.log";
 
 # Log the creation of the temporary directory
-log_to_journald("Temporary directory created at: $temp_dir");
+log_to_journald("Temporary directory created at: $temp_dir", LOG_INFO);
 
 # Notify systemd that the script has started successfully
 systemd_notify("READY=1");
@@ -66,12 +66,12 @@ systemd_notify("READY=1");
 $mqtt->subscribe('homeassistant/status' => sub {
     my ($topic, $message) = @_;
     if ($message eq 'online') {
-        log_to_journald("Home Assistant is online. Resending configurations...");
+        log_to_journald("Home Assistant is online. Resending configurations...", LOG_INFO);
         foreach my $ha_name (keys %sent_configs) {
             publish_mqtt($sent_configs{$ha_name}, undef, 1);  # Resend config on HA online
         }
     } elsif ($message eq 'offline') {
-        log_to_journald("Home Assistant is offline.");
+        log_to_journald("Home Assistant is offline.", LOG_INFO);
     }
 });
 
@@ -79,7 +79,7 @@ $mqtt->subscribe('homeassistant/status' => sub {
 open my $file, '-|', 'candump', '-ta', 'can0' or die "Cannot start candump: $!\n";
 
 # Indicate the start of CAN bus data processing
-log_to_journald("Script startup complete. Processing CAN bus data...");
+log_to_journald("Script startup complete. Processing CAN bus data...", LOG_INFO);
 process_can_bus_data($file);
 
 # Initialize and connect to the MQTT broker, with retry logic and LWT
@@ -92,15 +92,15 @@ sub initialize_mqtt {
             my $connection_string = "$mqtt_host:$mqtt_port";
             
             # Create and configure MQTT client
-            log_to_journald("Connecting to $mqtt_host:$mqtt_port...");
+            log_to_journald("Connecting to $mqtt_host:$mqtt_port...", LOG_INFO);
             $mqtt = Net::MQTT::Simple->new($connection_string);
-            log_to_journald("MQTT client created.");
+            log_to_journald("MQTT client created.", LOG_INFO);
             $mqtt->login($mqtt_username, $mqtt_password) if $mqtt_username && $mqtt_password;
-            log_to_journald("MQTT login successful.");
+            log_to_journald("MQTT login successful.", LOG_INFO);
 
             # Set Last Will and Testament (LWT) for availability
             $mqtt->last_will("rvc2hass/status", "offline", 1);  # Set LWT with topic, message, and retain flag
-            log_to_journald("LWT set to 'offline' on rvc2hass/status");
+            log_to_journald("LWT set to 'offline' on rvc2hass/status", LOG_INFO);
 
             # Publish "online" status after successful connection
             $mqtt->retain("rvc2hass/status", "online");
@@ -110,7 +110,7 @@ sub initialize_mqtt {
             my $message_received;
             $mqtt->subscribe($test_topic => sub {
                 my ($topic, $message) = @_;
-                log_to_journald("Received message on $test_topic: $message");
+                log_to_journald("Received message on $test_topic: $message", LOG_DEBUG);
                 $message_received = $message;
             });
 
@@ -125,22 +125,22 @@ sub initialize_mqtt {
             }
 
             if ($message_received && $message_received eq "MQTT startup successful") {
-                log_to_journald("Successfully connected to MQTT broker on attempt $attempt.");
+                log_to_journald("Successfully connected to MQTT broker on attempt $attempt.", LOG_INFO);
                 $success = 1;
                 last;  # Exit loop on success
             } else {
-                log_to_journald("Failed to receive confirmation message on attempt $attempt.");
+                log_to_journald("Failed to receive confirmation message on attempt $attempt.", LOG_WARNING);
                 $mqtt = undef;  # Reset $mqtt on failure
             }
         }
         catch {
             my $error_msg = $_;  # Capture the error message
-            log_to_journald("Error caught: $error_msg");
+            log_to_journald("Error caught: $error_msg", LOG_ERR);
 
             if ($error_msg =~ /connect: Connection refused/) {
-                log_to_journald("Connection refused by MQTT broker. Please check if the broker is running and accessible.");
+                log_to_journald("Connection refused by MQTT broker. Please check if the broker is running and accessible.", LOG_ERR);
             } else {
-                log_to_journald("Failed to connect to MQTT on attempt $attempt: $error_msg");
+                log_to_journald("Failed to connect to MQTT on attempt $attempt: $error_msg", LOG_ERR);
             }
             $mqtt = undef;  # Reset $mqtt on failure
             sleep($retry_delay) if $attempt < $max_retries;  # Delay before retrying
@@ -151,7 +151,7 @@ sub initialize_mqtt {
     if ($success) {
         return $mqtt;  # Return MQTT object on success
     } else {
-        log_to_journald("Failed to connect to MQTT broker after $max_retries attempts. Exiting.");
+        log_to_journald("Failed to connect to MQTT broker after $max_retries attempts. Exiting.", LOG_ERR);
         die "Failed to connect to MQTT broker after $max_retries attempts.";
     }
 }
@@ -164,9 +164,8 @@ sub start_watchdog {
     # Subscribe to the heartbeat topic to listen for confirmation messages
     $mqtt->subscribe($heartbeat_topic => sub {
         my ($topic, $message) = @_;
-        log_debug("Received heartbeat on $heartbeat_topic: $message");
+        log_to_journald("Received heartbeat on $heartbeat_topic: $message", LOG_DEBUG);
         if ($message eq "Heartbeat message from watchdog") {
-            log_debug("Setting heartbeat received flag.");
             $heartbeat_received = 1;
         }
     });
@@ -178,40 +177,38 @@ sub start_watchdog {
 
             try {
                 # Reset the heartbeat_received flag
-                log_debug("Heartbeat received flag reset.");
                 $heartbeat_received = 0;
 
                 # Publish a heartbeat message to MQTT
                 $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
-                log_debug("Published heartbeat message to MQTT");
+                log_to_journald("Published heartbeat message to MQTT", LOG_DEBUG);
 
                 # Wait for a confirmation message
                 for (my $wait = 0; $wait < 10; $wait++) {
                     for (1..10) { $mqtt->tick(); sleep(0.1); }  # Check frequently
                     if ($heartbeat_received) {
-                        log_debug("Heartbeat confirmation received.");
                         $mqtt_success = 1;
                         last;
                     }
                 }
 
                 if (!$mqtt_success) {
-                    log_to_journald("Failed to receive heartbeat confirmation. Exiting.");
+                    log_to_journald("Failed to receive heartbeat confirmation. Exiting.", LOG_ERR);
                     die "Error in watchdog loop: Failed to receive heartbeat confirmation. Exiting.";
                 }
 
             } catch {
-                log_to_journald("Error in watchdog loop: $_. Exiting.");
+                log_to_journald("Error in watchdog loop: $_. Exiting.", LOG_ERR);
                 die "Error in watchdog loop: $_. Exiting.";
             };
 
             # Notify systemd that the process is still alive
             if ($mqtt_success) {
-                log_to_journald("Notifying systemd watchdog.");
+                log_to_journald("Notifying systemd watchdog.", LOG_DEBUG);
                 if (systemd_notify("WATCHDOG=1")) {
-                    log_to_journald("Systemd watchdog notified successfully.");
+                    log_to_journald("Systemd watchdog notified successfully.", LOG_INFO);
                 } else {
-                    log_to_journald("Failed to notify systemd watchdog.");
+                    log_to_journald("Failed to notify systemd watchdog.", LOG_ERR);
                 }
             }
 
@@ -272,11 +269,11 @@ sub process_packet {
                 }
             }
         } else {
-            log_debug("No matching config found for DGN $dgn and instance $instance");
+            log_to_journald("No matching config found for DGN $dgn and instance $instance", LOG_DEBUG);
             log_to_temp_file($dgn);
         }
     } else {
-        log_debug("No data to publish for DGN $dgn");
+        log_to_journald("No data to publish for DGN $dgn", LOG_DEBUG);
     }
 }
 
@@ -312,7 +309,7 @@ sub publish_mqtt {
 
     # Ensure `ha_name` is defined before expanding templates
     if ($ha_name eq '') {
-        log_to_journald("Undefined ha_name for configuration.");
+        log_to_journald("Undefined ha_name for configuration.", LOG_ERR);
         return;
     }
 
@@ -324,12 +321,12 @@ sub publish_mqtt {
 
     # Ensure the configuration for the MQTT topics is defined before attempting to use them
     if (!$state_topic || !$command_topic || ($config->{device_class} eq 'light' && (!$brightness_state_topic || !$brightness_command_topic))) {
-        log_to_journald("Undefined or invalid topic template for ha_name: $ha_name");
+        log_to_journald("Undefined or invalid topic template for ha_name: $ha_name", LOG_ERR);
         return;
     }
 
     # Log the final MQTT topics for debugging
-    log_debug("Publishing MQTT for ha_name $ha_name with topics: state: $state_topic, command: $command_topic");
+    log_to_journald("Publishing MQTT for ha_name $ha_name with topics: state: $state_topic, command: $command_topic", LOG_DEBUG);
 
     # Send /config message only if not already sent or if resending
     if ($resend || !exists $sent_configs{$ha_name}) {
@@ -368,7 +365,7 @@ sub publish_mqtt {
         $mqtt->retain("homeassistant/$config->{device_class}/$ha_name/config", $config_json);
 
         # Log that a new device's /config was pushed
-        log_to_journald("Published /config for device: $ha_name ($friendly_name)");
+        log_to_journald("Published /config for device: $ha_name ($friendly_name)", LOG_INFO);
 
         # Track that this config has been sent
         $sent_configs{$ha_name} = $config;
@@ -393,7 +390,7 @@ sub publish_mqtt {
     $mqtt->retain($state_topic, $state_json);
 
     # Debug log the state message being published
-    log_debug("Published /state for device: $ha_name ($friendly_name) with state: $state_json");
+    log_to_journald("Published /state for device: $ha_name ($friendly_name) with state: $state_json", LOG_DEBUG);
 }
 
 # Function to replace template variables in topics
@@ -402,7 +399,7 @@ sub expand_template {
 
     # Check if the template is defined and non-empty
     if (!defined $template || $template eq '') {
-        log_to_journald("Undefined or empty template provided for ha_name: $ha_name");
+        log_to_journald("Undefined or empty template provided for ha_name: $ha_name", LOG_ERR);
         return '';  # Return an empty string to avoid further issues
     }
 
@@ -410,7 +407,7 @@ sub expand_template {
     $template =~ s/\{\{ ha_name \}\}/$ha_name/g;
 
     # Debug log to verify template expansion
-    log_to_journald("Expanded template for ha_name $ha_name: $template");
+    log_to_journald("Expanded template for ha_name $ha_name: $template", LOG_DEBUG);
 
     return $template;
 }
@@ -422,7 +419,7 @@ sub decode {
 
     my $decoder = $decoders->{$dgn};
     unless ($decoder) {
-        log_debug("No decoder found for DGN $dgn");
+        log_to_journald("No decoder found for DGN $dgn", LOG_DEBUG);
         return;
     }
 
@@ -578,7 +575,7 @@ sub log_to_temp_file {
 
     if (-e $undefined_dgns_file) {
         open my $fh, '<', $undefined_dgns_file or do {
-            log_to_journald("Failed to open log file for reading undefined DGN $dgn: $!");
+            log_to_journald("Failed to open log file for reading undefined DGN $dgn: $!", LOG_ERR);
             return;
         };
         while (my $line = <$fh>) {
@@ -592,21 +589,22 @@ sub log_to_temp_file {
     }
 
     open my $fh, '>>', $undefined_dgns_file or do {
-        log_to_journald("Failed to open log file for appending undefined DGN $dgn: $!");
+        log_to_journald("Failed to open log file for appending undefined DGN $dgn: $!", LOG_ERR);
         return;
     };
     print $fh "$dgn\n";
     close $fh;
 
-    log_to_journald("Logged undefined DGN $dgn to temporary file: $undefined_dgns_file");
+    log_to_journald("Logged undefined DGN $dgn to temporary file: $undefined_dgns_file", LOG_INFO);
 }
 
 # Log messages to journald
 sub log_to_journald {
-    my ($message) = @_;
-
+    my ($message, $level) = @_;
+    
+    $level //= LOG_INFO;  # Default log level if not provided
     openlog('rvc2hass', 'cons,pid', LOG_USER);
-    syslog(LOG_INFO, $message);
+    syslog($level, $message);
     closelog();
 }
 
@@ -616,18 +614,12 @@ sub systemd_notify {
     my $socket_path = $ENV{NOTIFY_SOCKET} // return;
 
     socket(my $socket, PF_UNIX, SOCK_DGRAM, 0) or do {
-        log_to_journald("Failed to create UNIX socket: $!");
+        log_to_journald("Failed to create UNIX socket: $!", LOG_ERR);
         return;
     };
     my $dest = sockaddr_un($socket_path);
     send($socket, $state, 0, $dest) or do {
-        log_to_journald("Failed to send systemd notification: $!");
+        log_to_journald("Failed to send systemd notification: $!", LOG_ERR);
     };
     close($socket);
-}
-
-# Log debug messages if debugging is enabled
-sub log_debug {
-    my ($message) = @_;
-    print "DEBUG: $message\n" if $debug;
 }
