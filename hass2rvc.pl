@@ -15,7 +15,7 @@ use threads;
 use threads::shared;
 
 # Command-line options
-my $debug = 0;
+my $debug = 1;
 my $log_level = LOG_INFO;
 GetOptions("debug" => \$debug, "log-level=i" => \$log_level);
 
