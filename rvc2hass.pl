@@ -291,9 +291,12 @@ sub handle_dimmable_light {
     if (defined $result) {
         my $brightness = $result->{'operating status (brightness)'};
 
-        # Ensure brightness is defined and valid
+        # Log the brightness value extracted from the CAN data
+        log_to_journald("Extracted brightness value from DGN $result->{dgn}: $brightness", LOG_DEBUG);
+
+        # Ensure brightness is defined and valid, allowing for floating-point values
         if (defined $brightness && $brightness =~ /^\d+(\.\d+)?$/) {
-            log_to_journald("Decoded brightness for $config->{ha_name}: $brightness (Type: " . ref($brightness) . ")", LOG_DEBUG);
+            log_to_journald("Decoded brightness for $config->{ha_name}: $brightness", LOG_DEBUG);
 
             # Calculate command based on brightness
             my $command = ($brightness > 0) ? 'ON' : 'OFF';
