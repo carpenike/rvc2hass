@@ -1,14 +1,16 @@
 # RVC to Home Assistant MQTT Bridge
 
-This service reads data from the CAN bus and translates it into MQTT messages for Home Assistant auto-discovery. It is designed to interface with an RV's CAN bus system, decode messages, and make the relevant data available in Home Assistant.
+The rvc2hass service is a Perl-based tool that bridges RV-C (Recreational Vehicle-CAN) data with Home Assistant, enabling you to monitor and control your RV devices via Home Assistant. This tool reads CAN bus data, decodes it, and publishes relevant information to an MQTT broker, making it available for Home Assistant to consume.
 
 ## Features
 
-- **CAN Bus Monitoring**: Listens to the CAN bus and decodes relevant data using a YAML configuration file.
+- **CAN Bus Monitoring**: Captures and processes data from the RV-C network using `candump`.
 - **Home Assistant Integration**: Auto-discovers devices and entities in Home Assistant through MQTT.
-- **MQTT Connectivity**: Handles MQTT connectivity with retry logic and Last Will and Testament (LWT) for device availability.
-- **Systemd Integration**: Includes a watchdog to ensure the service remains active and responsive.
-- **Dynamic Configuration**: Uses YAML files to define device configurations and decode CAN bus messages.
+- **MQTT Integration**: Publishes decoded data to an MQTT broker for integration with Home Assistant.
+- **Device Handling**: Supports a variety of RV devices, including lights, switches, and sensors, with the ability to handle dimmable lights.
+- **Retry Logic**: Robust MQTT connection logic with retries and Last Will and Testament (LWT) support.
+- **Watchdog Monitoring**: Ensures continuous operation by monitoring the health of the system and the MQTT connection.
+- **Dynamic Configuration**: Loads device configurations and specifications from YAML files, allowing for easy customization.
 
 ## TO DO
 
@@ -18,7 +20,7 @@ This service reads data from the CAN bus and translates it into MQTT messages fo
 
 - Perl 5.x
 - `Net::MQTT::Simple` module
-- `YAML::Tiny` module
+- `YAML::XS` module
 - `Sys::Syslog` module
 - `candump` tool from `can-utils`
 - A working MQTT broker
@@ -28,7 +30,7 @@ This service reads data from the CAN bus and translates it into MQTT messages fo
 
 1. Install the required Perl modules:
     ```
-    cpan install Net::MQTT::Simple YAML::Tiny Sys::Syslog
+    cpanm install YAML::XS JSON Net::MQTT::Simple Try::Tiny IO::Socket::UNIX threads Thread::Queue Time::HiRes File::Basename Sys::Syslog Getopt::Long POSIX
     ```
 
 2. Ensure `candump` from `can-utils` is installed:
@@ -112,6 +114,83 @@ journalctl -u rvc2hass.service
 
 For more detailed debugging output, start the script with the `--debug` flag or set `Environment="DEBUG=1"` in the systemd `env.conf`.
 
+## Example `coach-devices.yml` Configuration
+
+```yaml
+templates:
+  dimmable_light_template: &dimmable_light_template
+    state_topic: "homeassistant/light/{{ ha_name }}/state"
+    command_topic: "homeassistant/light/{{ ha_name }}/set"
+    value_template: "{{ value_json.state }}"
+    device_class: light
+    brightness_state_topic: "homeassistant/light/{{ ha_name }}/state"
+    brightness_command_topic: "homeassistant/light/{{ ha_name }}/brightness/set"
+    brightness_value_template: "{{ value_json.brightness }}"
+    brightness_command_template: "{{ value }}"
+    payload_on: "ON"
+    payload_off: "OFF"
+    state_value_template: "{{ value_json.state }}"
+
+# Dimmable Lights
+1FEDA:
+  30:
+    - ha_name: master_bath_ceiling_light
+      friendly_name: Master Bathroom Ceiling Light
+      <<: *dimmable_light_template
+
+  31:
+    - ha_name:  master_bath_lav_light
+      friendly_name: Master Bathroom Lavatory Light
+      <<: *dimmable_light_template
+  32:
+    - ha_name:  master_bath_accent_light
+      friendly_name: Master Bathroom Accent Light
+      <<: *dimmable_light_template
+```
+
+## MQTT Entries from Dimmable Light Status:
+
+Topic: homeassistant/light/master_bath_ceiling_light/state
+
+```json
+{
+  "load status definition": "undefined",
+  "data": "1E7CC6FCFF0404FF",
+  "last command": 4,
+  "overcurrent status": 3,
+  "enable status definition": "undefined",
+  "interlock status": 0,
+  "override status": 3,
+  "interlock status definition": "undefined",
+  "last command definition": "stop",
+  "load status": 1,
+  "instance": 30,
+  "enable status": 3,
+  "delay/duration": 255,
+  "name": "DC_DIMMER_STATUS_3",
+  "operating status (brightness)": 99,
+  "lock status definition": "undefined",
+  "dgn": "1FEDA",
+  "overcurrent status definition": "undefined",
+  "group": "01111100",
+  "lock status": 0,
+  "override status definition": "undefined"
+}
+```
+
+Topic: homeassistant/light/master_bath_ceiling_light/config
+
+```json
+{
+  "value_template": "{{ value_json['operating status (brightness)'] }}",
+  "name": "Master Bathroom Ceiling Light",
+  "state_topic": "homeassistant/light/master_bath_ceiling_light/state",
+  "json_attributes_topic": "homeassistant/light/master_bath_ceiling_light/state",
+  "unique_id": "master_bath_ceiling_light",
+  "device_class": "light"
+}
+```
+
 ## License
 
 This project is licensed under the MIT License. See the `LICENSE` file for details.
@@ -119,3 +198,9 @@ This project is licensed under the MIT License. See the `LICENSE` file for detai
 ## Contributing
 
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+
+## Credit
+
+Many thanks to the creators of the now unmaintained [CoachProxy](https://coachproxy.com/) for the initial code.
+
+Also thanks to [eRVin](https://myervin.com/) for the guidance on determining where the Entegra devices are on the RV-C network
