@@ -2,7 +2,6 @@
 
 use strict;
 use warnings;
-no warnings 'exiting';  # Suppress 'exiting' warnings for potential exit calls in loops
 use File::Temp qw(tempdir);
 use YAML::XS qw(LoadFile);
 use JSON qw(encode_json decode_json);
@@ -15,10 +14,15 @@ use Time::HiRes qw(sleep);
 use File::Basename;
 use Sys::Syslog qw(:standard :macros);
 use Getopt::Long;
+use POSIX qw(strftime);
 
 # Command-line options
 my $debug = 0;
-GetOptions("debug" => \$debug);
+my $log_level = LOG_INFO;
+GetOptions("debug" => \$debug, "log-level=i" => \$log_level);
+
+# Set log level for debugging
+$log_level = LOG_DEBUG if $debug;
 
 # Configuration Variables
 my $mqtt_host = $ENV{MQTT_HOST} || "localhost";
@@ -32,7 +36,8 @@ my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0
 my %sent_configs;  # Track sent configurations to avoid resending
 
 # Only log environment variables if debugging is enabled
-log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV), LOG_DEBUG) if $debug;
+log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } grep { $_ !~ /PASSWORD|SECRET/ } keys %ENV), LOG_DEBUG) if $debug;
+
 $ENV{MQTT_SIMPLE_ALLOW_INSECURE_LOGIN} = 1;  # Allow unencrypted connection with credentials
 
 # Initialize MQTT connection
@@ -159,6 +164,7 @@ sub initialize_mqtt {
 sub start_watchdog {
     my $heartbeat_topic = "rvc2hass/heartbeat";
     my $heartbeat_received = 0;
+    my $keep_running = 1;
 
     # Subscribe to the heartbeat topic to listen for confirmation messages
     $mqtt->subscribe($heartbeat_topic => sub {
@@ -171,7 +177,7 @@ sub start_watchdog {
 
     # Start a detached thread to handle watchdog functionality
     my $watchdog_thread = threads->create(sub {
-        while (1) {
+        while ($keep_running) {
             my $mqtt_success = 0;
 
             try {
@@ -216,6 +222,16 @@ sub start_watchdog {
     });
 
     $watchdog_thread->detach();  # Detach the thread to allow it to run independently
+
+    # Cleanup hook for thread termination
+    $SIG{'INT'} = sub { 
+        log_to_journald("Received INT signal. Exiting watchdog thread.", LOG_INFO);
+        $keep_running = 0;
+    };
+    $SIG{'TERM'} = sub { 
+        log_to_journald("Received TERM signal. Exiting watchdog thread.", LOG_INFO);
+        $keep_running = 0;
+    };
 }
 
 # Process CAN bus data by reading and handling each line of input
@@ -273,7 +289,7 @@ sub process_packet {
                 }
             }
         } else {
-            log_to_journald("No matching config found for DGN $dgn and instance $instance", LOG_DEBUG) if $debug;
+            log_to_journald("No matching config found for DGN $dgn and instance $instance", LOG_WARNING);
             log_to_temp_file($dgn);
         }
     } else {
@@ -380,8 +396,8 @@ sub publish_mqtt {
             name => $friendly_name,
             state_topic => $state_topic,
             command_topic => $command_topic,
-            device_class => $config->{device_class},  # Include device_class if applicable
-            unique_id => $ha_name,  # Ensure unique ID for the device
+            device_class => $config->{device_class},
+            unique_id => $ha_name,
             payload_on => "ON",
             payload_off => "OFF",
             state_value_template => '{{ value_json.state }}',
@@ -418,14 +434,14 @@ sub publish_mqtt {
 
     # Determine the correct state based on brightness for lights, or use ON/OFF for switches
     my $calculated_state;
-    my $calculated_brightness = $result->{'operating status (brightness)'} // 'undefined';
+    my $calculated_brightness = $result->{'calculated_brightness'} // 'undefined';
 
     if ($config->{device_class} eq 'light') {
         if (defined $calculated_brightness && $calculated_brightness =~ /^\d+(\.\d+)?$/) {
             $calculated_state = ($calculated_brightness > 0) ? 'ON' : 'OFF';
         } else {
             log_to_journald("Invalid or undefined calculated_brightness for device: $ha_name. Setting to 0.", LOG_WARNING);
-            $calculated_brightness = 0;  # Default to 0 brightness
+            $calculated_brightness = 0;
             $calculated_state = 'OFF';
         }
     } elsif ($config->{device_class} eq 'switch') {
@@ -660,6 +676,8 @@ sub log_to_journald {
     my ($message, $level) = @_;
     
     $level //= LOG_INFO;  # Default log level if not provided
+    return if $level > $log_level;  # Skip logging if below the current log level
+
     openlog('rvc2hass', 'cons,pid', LOG_USER);
     syslog($level, $message);
     closelog();
