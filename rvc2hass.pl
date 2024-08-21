@@ -291,6 +291,9 @@ sub handle_dimmable_light {
     if (defined $result) {
         my $brightness = $result->{'operating status (brightness)'};
 
+        # Log the entire result hash to understand what's being passed
+        log_to_journald("Result contents before handling brightness: " . encode_json($result), LOG_DEBUG);
+
         # Ensure brightness is defined and valid
         if (defined $brightness && $brightness =~ /^\d+(\.\d+)?$/) {
             log_to_journald("Decoded brightness for $config->{ha_name}: $brightness (Type: " . ref($brightness) . ")", LOG_DEBUG);
@@ -300,7 +303,7 @@ sub handle_dimmable_light {
             log_to_journald("Calculated command: $command for device: $config->{ha_name}", LOG_DEBUG);
 
             # Store calculated values in the result hash
-            $result->{'calculated_brightness'} = int($brightness);  # Convert brightness to an integer
+            $result->{'calculated_brightness'} = $brightness;
             $result->{'calculated_command'} = $command;
 
             # Log the entire result hash before publishing to MQTT
