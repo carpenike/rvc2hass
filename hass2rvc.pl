@@ -122,6 +122,10 @@ exit(0);
 # Process incoming MQTT commands and convert to CAN bus messages
 sub process_mqtt_command {
     my ($instance, $config, $message, $command_type) = @_;
+
+    # Ensure instance is numeric or set to a default value (like 0)
+    $instance = defined($instance) && $instance ne '' ? $instance : 0;
+
     my $command = 0;
     my $brightness = 125;  # Default brightness
 
