@@ -281,7 +281,7 @@ sub handle_dimmable_light {
     my ($config, $result) = @_;
 
     # Calculate brightness and command state based on data
-    my $brightness = $result->{'operating status (brightness)'};
+    my $brightness = $result->{'operating status (brightness)'} // 0;
     my $command = ($brightness == 100) ? 'ON' : ($brightness > 0) ? 'ON' : 'OFF';
 
     # Store calculated values in result hash for MQTT publishing
@@ -299,7 +299,7 @@ sub publish_mqtt {
     my $ha_name = $config->{ha_name};
     my $friendly_name = $config->{friendly_name};
 
-    # Expand templates
+    # Ensure template variables are initialized
     my $state_topic = expand_template($config->{state_topic}, $ha_name);
     my $command_topic = expand_template($config->{command_topic}, $ha_name);
     my $brightness_state_topic = expand_template($config->{brightness_state_topic}, $ha_name);
@@ -373,6 +373,13 @@ sub publish_mqtt {
 # Function to replace template variables in topics
 sub expand_template {
     my ($template, $ha_name) = @_;
+    
+    # Check if the template is defined
+    if (!defined $template) {
+        log_to_journald("Undefined template for ha_name: $ha_name");
+        $template = '';  # Set a default value to avoid warnings
+    }
+
     $template =~ s/\{\{ ha_name \}\}/$ha_name/g;
     return $template;
 }
