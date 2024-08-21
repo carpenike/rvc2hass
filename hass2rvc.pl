@@ -119,6 +119,12 @@ exit(0);
 sub process_mqtt_command {
     my ($config, $message, $command_type) = @_;
     my $instance = $config->{instance};
+
+    unless (defined $instance) {
+        log_to_journald("Undefined instance for ha_name $config->{ha_name}", LOG_ERR);
+        return;
+    }
+
     my $command = 0;
     my $brightness = 125;  # Default brightness
 
