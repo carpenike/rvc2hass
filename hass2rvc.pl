@@ -51,12 +51,16 @@ my $lookup = LoadFile("$script_dir/config/coach-devices.yml");
 
 # Subscribe to MQTT topics for all devices
 foreach my $dgn (keys %$lookup) {
-    next unless ref($lookup->{$dgn}) eq 'HASH';  # Ensure $lookup->{$dgn} is a hash reference
-
     foreach my $instance (keys %{$lookup->{$dgn}}) {
-        next unless ref($lookup->{$dgn}->{$instance}) eq 'ARRAY';  # Ensure $lookup->{$dgn}->{$instance} is an array reference
-
         foreach my $config (@{$lookup->{$dgn}->{$instance}}) {
+
+            # Flatten the configuration by merging the template values
+            if (exists $config->{'<<'}) {
+                my %merged_config = (%{$config->{'<<'}}, %$config);
+                $config = \%merged_config;
+                delete $config->{'<<'};
+            }
+
             # Ensure that ha_name is defined before proceeding
             unless (defined $config->{ha_name}) {
                 log_to_journald("Missing ha_name for DGN $dgn, instance $instance", LOG_ERR);
