@@ -213,9 +213,11 @@ sub start_watchdog {
 
             # Notify systemd that the process is still alive
             if ($mqtt_success) {
-                log_to_journald("Notifying systemd watchdog.", LOG_DEBUG) if $debug;
+                if ($debug) {
+                    log_to_journald("Notifying systemd watchdog.", LOG_DEBUG);
+                }
                 if (systemd_notify("WATCHDOG=1")) {
-                    log_to_journald("Systemd watchdog notified successfully.", LOG_INFO);
+                    log_to_journald("Systemd watchdog notified successfully.", LOG_INFO) if $debug;
                 } else {
                     log_to_journald("Failed to notify systemd watchdog.", LOG_ERR);
                 }
