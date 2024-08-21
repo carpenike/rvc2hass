@@ -401,8 +401,8 @@ sub publish_mqtt {
             $config_message{supported_color_modes} = ["brightness"];
             $config_message{brightness} = JSON::true;
             $config_message{brightness_scale} = 100;
-            $config_message{brightness_state_topic} = $brightness_state_topic;  # Colocate brightness and state
-            $config_message{brightness_command_topic} = $brightness_command_topic;  # Separate command topic for brightness
+            $config_message{brightness_state_topic} = $brightness_state_topic;
+            $config_message{brightness_command_topic} = $brightness_command_topic;
             $config_message{brightness_command_template} = '{{ value }}';
             $config_message{brightness_value_template} = '{{ value_json.brightness }}';
         }
