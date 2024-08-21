@@ -397,8 +397,9 @@ sub publish_mqtt {
         $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
     }
 
-    # Log the brightness value before state calculation if debugging is enabled
-    log_to_journald("Brightness value before state calculation: $calculated_brightness", LOG_DEBUG) if $debug;
+    # Track the last sent state and brightness for this device
+    my $last_state = $sent_configs{$ha_name}->{last_state} // '';
+    my $last_brightness = $sent_configs{$ha_name}->{last_brightness} // '';
 
     # Prepare the state message
     my %state_message = (
@@ -406,27 +407,18 @@ sub publish_mqtt {
         brightness => $calculated_brightness
     );
 
-    # Track the last sent state and brightness for this device
-    my $last_state = $sent_configs{$ha_name}->{last_state} // '';
-    my $last_brightness = $sent_configs{$ha_name}->{last_brightness} // '';
+    # Publish the state message to the /state topic
+    my $state_json = encode_json(\%state_message);
+    $mqtt->retain($state_topic, $state_json);
 
-    # Check if the state or brightness has changed
+    # Log changes only if the state or brightness has changed
     if ($resend || $calculated_state ne $last_state || $calculated_brightness != $last_brightness) {
-        log_to_journald("State or brightness has changed for $ha_name. Publishing update.", LOG_INFO);
-
-        # Publish the state message to the /state topic
-        my $state_json = encode_json(\%state_message);
-        $mqtt->retain($state_topic, $state_json);
-
-        # Debug log the state message being published if debugging is enabled
-        log_to_journald("Published /state for device: $ha_name ($friendly_name) with state: $state_json", LOG_DEBUG) if $debug;
-
-        # Update the last sent state and brightness
-        $sent_configs{$ha_name}->{last_state} = $calculated_state;
-        $sent_configs{$ha_name}->{last_brightness} = $calculated_brightness;
-    } else {
-        log_to_journald("No change in state or brightness for $ha_name. Skipping publication.", LOG_INFO);
+        log_to_journald("State or brightness has changed for $ha_name. Publishing update: state=$calculated_state, brightness=$calculated_brightness", LOG_INFO);
     }
+
+    # Update the last sent state and brightness
+    $sent_configs{$ha_name}->{last_state} = $calculated_state;
+    $sent_configs{$ha_name}->{last_brightness} = $calculated_brightness;
 }
 
 # Function to replace template variables in topics
