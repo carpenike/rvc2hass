@@ -369,6 +369,7 @@ sub publish_mqtt {
     my $ha_name = $config->{ha_name} // '';
     my $friendly_name = $config->{friendly_name} // '';
     my $device_class = $config->{device_class} // 'switch';  # Default to 'switch' if not specified
+    my $is_dimmable = $config->{dimmable} // 0;  # Default to non-dimmable if not specified
 
     if ($ha_name eq '') {
         log_to_journald("ha_name is not defined or empty for this configuration.", LOG_ERR);
@@ -378,11 +379,11 @@ sub publish_mqtt {
     # Expand templates, ensuring each template variable is properly initialized
     my $state_topic = expand_template($config->{state_topic}, $ha_name);
     my $command_topic = expand_template($config->{command_topic}, $ha_name);
-    my $brightness_state_topic = expand_template($config->{brightness_state_topic}, $ha_name) if $device_class eq 'light';
-    my $brightness_command_topic = expand_template($config->{brightness_command_topic}, $ha_name) if $device_class eq 'light';
+    my $brightness_state_topic = expand_template($config->{brightness_state_topic}, $ha_name) if $is_dimmable;
+    my $brightness_command_topic = expand_template($config->{brightness_command_topic}, $ha_name) if $is_dimmable;
 
     # Ensure the configuration for the MQTT topics is defined before attempting to use them
-    if (!$state_topic || !$command_topic || ($device_class eq 'light' && (!$brightness_state_topic || !$brightness_command_topic))) {
+    if (!$state_topic || !$command_topic || ($is_dimmable && (!$brightness_state_topic || !$brightness_command_topic))) {
         log_to_journald("Undefined or invalid topic template for ha_name: $ha_name", LOG_ERR);
         return;
     }
@@ -417,8 +418,8 @@ sub publish_mqtt {
             state_value_template => $config->{state_value_template} // '{{ value_json.state }}',
         );
 
-        # Additional properties for lights
-        if ($device_class eq 'light') {
+        # Additional properties for dimmable lights
+        if ($is_dimmable) {
             $config_message{brightness} = JSON::true;
             $config_message{brightness_scale} = 100;
             $config_message{supported_color_modes} = ['brightness'];
@@ -457,8 +458,8 @@ sub publish_mqtt {
         state => $calculated_state,
     );
 
-    # Add brightness to the state message if it's a light
-    $state_message{brightness} = $calculated_brightness if $device_class eq 'light';
+    # Add brightness to the state message if it's a dimmable light
+    $state_message{brightness} = $calculated_brightness if $is_dimmable;
 
     # Publish the state message to the /state topic
     my $state_json = encode_json(\%state_message);
@@ -471,7 +472,7 @@ sub publish_mqtt {
 
     # Update the last sent state and brightness
     $sent_configs{$ha_name}->{last_state} = $calculated_state;
-    $sent_configs{$ha_name}->{last_brightness} = $calculated_brightness if $device_class eq 'light';
+    $sent_configs{$ha_name}->{last_brightness} = $calculated_brightness if $is_dimmable;
 }
 
 # Function to replace template variables in topics

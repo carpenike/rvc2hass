@@ -13,6 +13,7 @@ templates:
     command_topic: "homeassistant/light/{{ ha_name }}/set"
     value_template: "{{ value_json.state }}"
     device_class: light
+    dimmable: true  # Explicitly mark as dimmable
     brightness_state_topic: "homeassistant/light/{{ ha_name }}/state"
     brightness_command_topic: "homeassistant/light/{{ ha_name }}/brightness/set"
     brightness_value_template: "{{ value_json.brightness }}"
@@ -21,8 +22,34 @@ templates:
     payload_off: "OFF"
     state_value_template: "{{ value_json.state }}"
 
-# Dimmable Lights
+  switchable_light_template: &switchable_light_template
+    state_topic: "homeassistant/light/{{ ha_name }}/state"
+    command_topic: "homeassistant/light/{{ ha_name }}/set"
+    value_template: "{{ value_json.state }}"
+    device_class: light
+    dimmable: false  # Explicitly mark as non-dimmable
+    payload_on: "ON"
+    payload_off: "OFF"
+    state_value_template: "{{ value_json.state }}"
+
+# Interior Lights
 1FEDA:
+  25:
+    - ha_name: bedroom_ceiling_light
+      friendly_name: Bedroom Ceiling Light
+      <<: *dimmable_light_template
+  27:
+    - ha_name: bedroom_accent_light
+      friendly_name: Bedroom Accent Light
+      <<: *dimmable_light_template
+  28:
+    - ha_name: bedroom_vanity_light
+      friendly_name: Bedroom Vanity Light
+      <<: *dimmable_light_template
+  29:
+    - ha_name: bedroom_reading_light
+      friendly_name: Bedroom Reading Light
+      <<: *dimmable_light_template
   30:
     - ha_name: master_bath_ceiling_light
       friendly_name: Master Bathroom Ceiling Light
@@ -35,6 +62,60 @@ templates:
     - ha_name:  master_bath_accent_light
       friendly_name: Master Bathroom Accent Light
       <<: *dimmable_light_template
+  33:
+    - ha_name:  mid_bath_ceiling_light
+      friendly_name: Mid Bathroom Ceiling Light
+      <<: *dimmable_light_template
+  34:
+    - ha_name:  mid_bath_accent_light
+      friendly_name: Mid Bathroom Accent Light
+      <<: *dimmable_light_template
+  35:
+    - ha_name:  entrance_ceiling_light
+      friendly_name: Entrance Ceiling Light
+      <<: *dimmable_light_template
+  37:
+    - ha_name:  main_ceiling_light
+      friendly_name: Main Ceiling Light
+      <<: *dimmable_light_template
+  38:
+    - ha_name:  bedroom_courtesy_light
+      friendly_name: Bedroom Courtesy Light
+      <<: *dimmable_light_template
+  39:
+    - ha_name:  main_ceiling_accent_light
+      friendly_name: Main Ceiling Accent Light
+      <<: *dimmable_light_template
+  41:
+    - ha_name:  main_driver_side_ceiling_light
+      friendly_name: Main Driver Side Ceiling Light
+      <<: *dimmable_light_template
+  42:
+    - ha_name:  main_passenger_side_ceiling_light
+      friendly_name: Main Passenger Side Ceiling Light
+      <<: *dimmable_light_template
+  43:
+    - ha_name:  main_driver_side_slide_light
+      friendly_name: Main Driver Side Slide Light
+      <<: *dimmable_light_template
+  45:
+    - ha_name:  main_dinette_light
+      friendly_name: Main Dinette Light
+      <<: *dimmable_light_template
+  46:
+    - ha_name:  main_sink_light
+      friendly_name: Main Sink Light
+      <<: *dimmable_light_template
+  47:
+    - ha_name:  main_midship_light
+      friendly_name: Main Midship Light
+      <<: *dimmable_light_template
+
+# Exterior Lights
+  54:
+    - ha_name:  exterior_under_slide_light
+      friendly_name: Exterior Under Slide Light
+      <<: *switchable_light_template
 
 # 17F00:
 #   default:
