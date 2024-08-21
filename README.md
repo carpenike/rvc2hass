@@ -127,10 +127,21 @@ templates:
     command_topic: "homeassistant/light/{{ ha_name }}/set"
     value_template: "{{ value_json.state }}"
     device_class: light
+    dimmable: true  # Explicitly mark as dimmable
     brightness_state_topic: "homeassistant/light/{{ ha_name }}/state"
     brightness_command_topic: "homeassistant/light/{{ ha_name }}/brightness/set"
     brightness_value_template: "{{ value_json.brightness }}"
     brightness_command_template: "{{ value }}"
+    payload_on: "ON"
+    payload_off: "OFF"
+    state_value_template: "{{ value_json.state }}"
+
+  switchable_light_template: &switchable_light_template
+    state_topic: "homeassistant/light/{{ ha_name }}/state"
+    command_topic: "homeassistant/light/{{ ha_name }}/set"
+    value_template: "{{ value_json.state }}"
+    device_class: light
+    dimmable: false  # Explicitly mark as non-dimmable
     payload_on: "ON"
     payload_off: "OFF"
     state_value_template: "{{ value_json.state }}"
@@ -150,6 +161,18 @@ templates:
     - ha_name:  master_bath_accent_light
       friendly_name: Master Bathroom Accent Light
       <<: *dimmable_light_template
+...
+
+# Non-dimmable Lights
+  51:
+    - ha_name:  exterior_driver_side_awning_light
+      friendly_name: Exterior Driver Side Awning Light
+      <<: *switchable_light_template
+  52:
+    - ha_name:  exterior_passenger_side_awning_light
+      friendly_name: Exterior Passenger Side Awning Light
+      <<: *switchable_light_template
+
 ```
 
 ## MQTT Entries from Dimmable Light Status:
