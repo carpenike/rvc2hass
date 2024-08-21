@@ -31,8 +31,8 @@ my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
 my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it for watchdog interval
 my %sent_configs;  # Track sent configurations to avoid resending
 
-# Log environment variables for debugging purposes
-log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV), LOG_DEBUG);
+# Only log environment variables if debugging is enabled
+log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } keys %ENV), LOG_DEBUG) if $debug;
 $ENV{MQTT_SIMPLE_ALLOW_INSECURE_LOGIN} = 1;  # Allow unencrypted connection with credentials
 
 # Initialize MQTT connection
@@ -48,9 +48,8 @@ my $script_dir = dirname(__FILE__);
 my $decoders = LoadFile("$script_dir/config/rvc-spec.yml");
 my $lookup = LoadFile("$script_dir/config/coach-devices.yml");
 
-# Debug: Print out the lookup structure to verify template inclusion
-use Data::Dumper;
-log_to_journald("Loaded YAML structure: " . Dumper($lookup), LOG_DEBUG);
+# Log the loaded YAML structure if debugging is enabled
+log_to_journald("Loaded YAML structure: " . Dumper($lookup), LOG_DEBUG) if $debug;
 
 # Create a temporary directory for undefined DGNs
 my $temp_dir = tempdir(CLEANUP => 1);
@@ -110,7 +109,7 @@ sub initialize_mqtt {
             my $message_received;
             $mqtt->subscribe($test_topic => sub {
                 my ($topic, $message) = @_;
-                log_to_journald("Received message on $test_topic: $message", LOG_DEBUG);
+                log_to_journald("Received message on $test_topic: $message", LOG_DEBUG) if $debug;
                 $message_received = $message;
             });
 
@@ -164,7 +163,7 @@ sub start_watchdog {
     # Subscribe to the heartbeat topic to listen for confirmation messages
     $mqtt->subscribe($heartbeat_topic => sub {
         my ($topic, $message) = @_;
-        log_to_journald("Received heartbeat on $heartbeat_topic: $message", LOG_DEBUG);
+        log_to_journald("Received heartbeat on $heartbeat_topic: $message", LOG_DEBUG) if $debug;
         if ($message eq "Heartbeat message from watchdog") {
             $heartbeat_received = 1;
         }
@@ -181,7 +180,7 @@ sub start_watchdog {
 
                 # Publish a heartbeat message to MQTT
                 $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
-                log_to_journald("Published heartbeat message to MQTT", LOG_DEBUG);
+                log_to_journald("Published heartbeat message to MQTT", LOG_DEBUG) if $debug;
 
                 # Wait for a confirmation message
                 for (my $wait = 0; $wait < 10; $wait++) {
@@ -204,7 +203,7 @@ sub start_watchdog {
 
             # Notify systemd that the process is still alive
             if ($mqtt_success) {
-                log_to_journald("Notifying systemd watchdog.", LOG_DEBUG);
+                log_to_journald("Notifying systemd watchdog.", LOG_DEBUG) if $debug;
                 if (systemd_notify("WATCHDOG=1")) {
                     log_to_journald("Systemd watchdog notified successfully.", LOG_INFO);
                 } else {
@@ -234,7 +233,6 @@ sub process_can_bus_data {
 # Process a single CAN bus packet, decoding and publishing to MQTT as needed
 sub process_packet {
     my @parts = @_;
-    # log_to_journald("Processing packet: @parts", LOG_DEBUG);
 
     return unless @parts >= 5;  # Ensure there are enough parts to process
 
@@ -243,13 +241,13 @@ sub process_packet {
     my $dgn_bin = substr($binCanId, 4, 17);  # Extract DGN from CAN ID
     my $dgn = sprintf("%05X", oct("0b$dgn_bin"));  # Convert binary DGN to hex
 
-    log_to_journald("DGN: $dgn, Data: @parts[4..$#parts]", LOG_DEBUG);
+    log_to_journald("DGN: $dgn, Data: @parts[4..$#parts]", LOG_DEBUG) if $debug;
 
     my $data_bytes = join '', @parts[4..$#parts];
     my $result = decode($dgn, $data_bytes);
 
     if ($result) {
-        log_to_journald("Decoded result: " . encode_json($result), LOG_DEBUG);
+        log_to_journald("Decoded result: " . encode_json($result), LOG_DEBUG) if $debug;
         my $instance = $result->{'instance'} // 'default';  # Default to 'default' if instance not found
 
         if (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{$instance}) {
@@ -275,11 +273,11 @@ sub process_packet {
                 }
             }
         } else {
-            log_to_journald("No matching config found for DGN $dgn and instance $instance", LOG_DEBUG);
+            log_to_journald("No matching config found for DGN $dgn and instance $instance", LOG_DEBUG) if $debug;
             log_to_temp_file($dgn);
         }
     } else {
-        log_to_journald("No data to publish for DGN $dgn", LOG_DEBUG);
+        log_to_journald("No data to publish for DGN $dgn", LOG_DEBUG) if $debug;
     }
 }
 
@@ -293,14 +291,14 @@ sub handle_dimmable_light {
         return;
     }
     
-    # Log incoming result data
-    log_to_journald("Received result in handle_dimmable_light: " . encode_json($result), LOG_DEBUG);
+    # Log incoming result data if debugging is enabled
+    log_to_journald("Received result in handle_dimmable_light: " . encode_json($result), LOG_DEBUG) if $debug;
     
     # Extract brightness from result
     my $brightness = $result->{'operating status (brightness)'};
     
-    # Log extracted brightness
-    log_to_journald("Extracted brightness: " . (defined $brightness ? $brightness : 'undefined'), LOG_DEBUG);
+    # Log extracted brightness if debugging is enabled
+    log_to_journald("Extracted brightness: " . (defined $brightness ? $brightness : 'undefined'), LOG_DEBUG) if $debug;
     
     # Validate brightness value
     if (defined $brightness && $brightness =~ /^\d+(\.\d+)?$/) {
@@ -312,8 +310,8 @@ sub handle_dimmable_light {
         # Determine command based on brightness
         my $command = ($brightness > 0) ? 'ON' : 'OFF';
         
-        # Log calculated values
-        log_to_journald("Calculated command: $command, brightness: $brightness for device: $config->{ha_name}", LOG_DEBUG);
+        # Log calculated values if debugging is enabled
+        log_to_journald("Calculated command: $command, brightness: $brightness for device: $config->{ha_name}", LOG_DEBUG) if $debug;
         
         # Add calculated values to result
         $result->{'calculated_brightness'} = $brightness;
@@ -328,12 +326,14 @@ sub handle_dimmable_light {
         $result->{'calculated_command'} = 'OFF';
     }
     
-    # Log result before publishing
-    log_to_journald("Result before publishing: " . encode_json($result), LOG_DEBUG);
+    # Log result before publishing if debugging is enabled
+    log_to_journald("Result before publishing: " . encode_json($result), LOG_DEBUG) if $debug;
     
     # Publish MQTT message
     publish_mqtt($config, $result);
 }
+
+# Publish MQTT messages, handling configuration and state updates
 sub publish_mqtt {
     my ($config, $result, $resend) = @_;
 
@@ -371,7 +371,7 @@ sub publish_mqtt {
     $brightness_command_topic =~ s/\/{2,}/\//g if defined $brightness_command_topic;
 
     # Log the final MQTT topics for debugging
-    log_to_journald("Publishing MQTT for ha_name $ha_name with topics: state: $state_topic, command: $command_topic, brightness_state: $brightness_state_topic, brightness_command: $brightness_command_topic", LOG_DEBUG);
+    log_to_journald("Publishing MQTT for ha_name $ha_name with topics: state: $state_topic, command: $command_topic, brightness_state: $brightness_state_topic, brightness_command: $brightness_command_topic", LOG_DEBUG) if $debug;
 
     # Send /config message only if not already sent or if resending
     if ($resend || !exists $sent_configs{$ha_name}) {
@@ -432,8 +432,8 @@ sub publish_mqtt {
         $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
     }
 
-    # Log the brightness value before state calculation
-    log_to_journald("Brightness value before state calculation: $calculated_brightness", LOG_DEBUG);
+    # Log the brightness value before state calculation if debugging is enabled
+    log_to_journald("Brightness value before state calculation: $calculated_brightness", LOG_DEBUG) if $debug;
 
     # Prepare the state message
     my %state_message = (
@@ -446,8 +446,8 @@ sub publish_mqtt {
     my $state_json = encode_json(\%state_message);
     $mqtt->retain($state_topic, $state_json);
 
-    # Debug log the state message being published
-    log_to_journald("Published /state for device: $ha_name ($friendly_name) with state: $state_json", LOG_DEBUG);
+    # Debug log the state message being published if debugging is enabled
+    log_to_journald("Published /state for device: $ha_name ($friendly_name) with state: $state_json", LOG_DEBUG) if $debug;
 }
 
 # Function to replace template variables in topics
@@ -463,8 +463,8 @@ sub expand_template {
     # Perform the substitution
     $template =~ s/\{\{ ha_name \}\}/$ha_name/g;
 
-    # Debug log to verify template expansion
-    log_to_journald("Expanded template for ha_name $ha_name: $template", LOG_DEBUG);
+    # Debug log to verify template expansion if debugging is enabled
+    log_to_journald("Expanded template for ha_name $ha_name: $template", LOG_DEBUG) if $debug;
 
     return $template;
 }
@@ -476,7 +476,7 @@ sub decode {
 
     my $decoder = $decoders->{$dgn};
     unless ($decoder) {
-        log_to_journald("No decoder found for DGN $dgn", LOG_DEBUG);
+        log_to_journald("No decoder found for DGN $dgn", LOG_DEBUG) if $debug;
         return;
     }
 
@@ -520,9 +520,6 @@ sub decode {
     }
 
     $result{instance} = $result{instance} // undef;
-
-    # Additional log to ensure the result is being decoded correctly
-    #log_to_journald("Decoded values for DGN $dgn: " . encode_json(\%result), LOG_DEBUG);
 
     return \%result;
 }
