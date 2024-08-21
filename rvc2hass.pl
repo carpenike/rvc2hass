@@ -310,9 +310,14 @@ sub publish_mqtt {
 
     # Ensure `ha_name` is defined before expanding templates
     if ($ha_name eq '') {
-        log_to_journald("Undefined ha_name for configuration.", LOG_ERR);
+        log_to_journald("Undefined ha_name for configuration.");
         return;
     }
+
+    # Ensure device_class is defined and sanitize any empty fields
+    $config->{device_class} //= '';  # Default to empty string if not defined
+    $config->{device_class} =~ s/^\s+|\s+$//g;  # Trim any whitespace
+    $config->{device_class} = 'default' if $config->{device_class} eq '';  # Use 'default' if empty
 
     # Expand templates, ensuring each template variable is properly initialized
     my $state_topic = expand_template($config->{state_topic}, $ha_name);
@@ -322,9 +327,15 @@ sub publish_mqtt {
 
     # Ensure the configuration for the MQTT topics is defined before attempting to use them
     if (!$state_topic || !$command_topic || ($config->{device_class} eq 'light' && (!$brightness_state_topic || !$brightness_command_topic))) {
-        log_to_journald("Undefined or invalid topic template for ha_name: $ha_name", LOG_ERR);
+        log_to_journald("Undefined or invalid topic template for ha_name: $ha_name");
         return;
     }
+
+    # Sanitize topics to remove double slashes
+    $state_topic =~ s/\/{2,}/\//g;
+    $command_topic =~ s/\/{2,}/\//g;
+    $brightness_state_topic =~ s/\/{2,}/\//g if defined $brightness_state_topic;
+    $brightness_command_topic =~ s/\/{2,}/\//g if defined $brightness_command_topic;
 
     # Log the final MQTT topics for debugging
     log_to_journald("Publishing MQTT for ha_name $ha_name with topics: state: $state_topic, command: $command_topic", LOG_DEBUG);
@@ -366,7 +377,7 @@ sub publish_mqtt {
         $mqtt->retain("homeassistant/$config->{device_class}/$ha_name/config", $config_json);
 
         # Log that a new device's /config was pushed
-        log_to_journald("Published /config for device: $ha_name ($friendly_name)", LOG_INFO);
+        log_to_journald("Published /config for device: $ha_name ($friendly_name)");
 
         # Track that this config has been sent
         $sent_configs{$ha_name} = $config;
