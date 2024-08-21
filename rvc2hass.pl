@@ -601,14 +601,20 @@ sub tempC2F {
     return int((($tempC * 9 / 5) + 32) * 10) / 10;
 }
 
-# Track and log missing configuration entries
+# Function to log missing configuration entries
 sub log_missing_config {
     my ($dgn, $instance) = @_;
     my $key = "$dgn-$instance";
 
     unless (exists $missing_configs{$key}) {
-        log_to_journald("No matching config found for DGN $dgn and instance $instance", LOG_WARNING);
         $missing_configs{$key} = 1;
+
+        # Lookup DGN information from the loaded YAML
+        my $dgn_info = $rvc_spec->{$dgn};
+        my $dgn_name = $dgn_info->{name} // "Unknown DGN";
+        my $dgn_description = $dgn_info->{description} // "No description available";
+
+        log_to_journald("No matching config found for DGN $dgn ($dgn_name): $dgn_description and instance $instance", LOG_WARNING);
     }
 }
 
