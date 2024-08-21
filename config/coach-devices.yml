@@ -112,9 +112,37 @@ templates:
       <<: *dimmable_light_template
 
 # Exterior Lights
+  51:
+    - ha_name:  exterior_driver_side_awning_light
+      friendly_name: Exterior Driver Side Awning Light
+      <<: *switchable_light_template
+  52:
+    - ha_name:  exterior_passenger_side_awning_light
+      friendly_name: Exterior Passenger Side Awning Light
+      <<: *switchable_light_template
+  53:
+    - ha_name:  basement_cargo_light
+      friendly_name: Basement Cargo Light
+      <<: *switchable_light_template
   54:
     - ha_name:  exterior_under_slide_light
       friendly_name: Exterior Under Slide Light
+      <<: *switchable_light_template
+  57:
+    - ha_name:  exterior_driver_side_security_light
+      friendly_name: Exterior Driver Side Security Light
+      <<: *switchable_light_template
+  58:
+    - ha_name:  exterior_passenger_side_security_light
+      friendly_name: Exterior Passenger Side Security Light
+      <<: *switchable_light_template
+  59:
+    - ha_name:  exterior_motion_light
+      friendly_name: Exterior Motion Light
+      <<: *switchable_light_template
+  60:
+    - ha_name:  exterior_porch_light
+      friendly_name: Exterior Porch Light
       <<: *switchable_light_template
 
 # 17F00:
