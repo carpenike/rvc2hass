@@ -296,14 +296,26 @@ sub handle_dimmable_light {
 sub publish_mqtt {
     my ($config, $result, $resend) = @_;
 
-    my $ha_name = $config->{ha_name};
-    my $friendly_name = $config->{friendly_name};
+    my $ha_name = $config->{ha_name} // '';
+    my $friendly_name = $config->{friendly_name} // '';
 
-    # Ensure template variables are initialized
+    # Ensure `ha_name` is defined before expanding templates
+    if ($ha_name eq '') {
+        log_to_journald("Undefined ha_name for configuration.");
+        return;
+    }
+
+    # Expand templates, ensuring each template variable is properly initialized
     my $state_topic = expand_template($config->{state_topic}, $ha_name);
     my $command_topic = expand_template($config->{command_topic}, $ha_name);
     my $brightness_state_topic = expand_template($config->{brightness_state_topic}, $ha_name);
     my $brightness_command_topic = expand_template($config->{brightness_command_topic}, $ha_name);
+
+    # Ensure the configuration for the MQTT topics is defined before attempting to use them
+    if (!$state_topic || !$command_topic || ($config->{device_class} eq 'light' && (!$brightness_state_topic || !$brightness_command_topic))) {
+        log_to_journald("Undefined or invalid topic template for ha_name: $ha_name");
+        return;
+    }
 
     # Send /config message only if not already sent or if resending
     if ($resend || !exists $sent_configs{$ha_name}) {
@@ -373,16 +385,18 @@ sub publish_mqtt {
 # Function to replace template variables in topics
 sub expand_template {
     my ($template, $ha_name) = @_;
-    
-    # Check if the template is defined
-    if (!defined $template) {
-        log_to_journald("Undefined template for ha_name: $ha_name");
-        $template = '';  # Set a default value to avoid warnings
+
+    # Check if the template is defined and non-empty
+    if (!defined $template || $template eq '') {
+        log_to_journald("Undefined or empty template for ha_name: $ha_name");
+        return '';  # Return an empty string to avoid warnings
     }
 
+    # Perform the substitution, replacing the `{{ ha_name }}` placeholder
     $template =~ s/\{\{ ha_name \}\}/$ha_name/g;
     return $template;
 }
+
 
 # Decode the DGN and data bytes to extract relevant parameters and values
 sub decode {
