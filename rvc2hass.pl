@@ -4,7 +4,7 @@ use strict;
 use warnings;
 no warnings 'exiting';  # Suppress 'exiting' warnings for potential exit calls in loops
 use File::Temp qw(tempdir);
-use YAML::Tiny;
+use YAML::XS qw(LoadFile);
 use JSON qw(encode_json decode_json);
 use Net::MQTT::Simple;
 use Try::Tiny;
@@ -45,11 +45,8 @@ start_watchdog(\$mqtt, $watchdog_interval) if $watchdog_interval;
 my $script_dir = dirname(__FILE__);
 
 # Load YAML files containing specifications and device configurations
-my $yaml_specs = YAML::Tiny->read("$script_dir/config/rvc-spec.yml");
-my $decoders = $yaml_specs->[0] if $yaml_specs;
-
-my $yaml_lookup = YAML::Tiny->read("$script_dir/config/coach-devices.yml");
-my $lookup = $yaml_lookup->[0] if $yaml_lookup;
+my $decoders = LoadFile("$script_dir/config/rvc-spec.yml");
+my $lookup = LoadFile("$script_dir/config/coach-devices.yml");
 
 # Create a temporary directory for undefined DGNs
 my $temp_dir = tempdir(CLEANUP => 1);
