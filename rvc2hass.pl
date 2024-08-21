@@ -417,14 +417,17 @@ sub publish_mqtt {
         $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
     }
 
+    # Log the brightness value just before publishing
+    log_to_journald("Final brightness value before publish: " . ($result->{'calculated_brightness'} // 'undefined'), LOG_DEBUG);
+
     # Prepare the state message
     my %state_message = (
         state => $calculated_state,
-        brightness => $result->{'calculated_brightness'} // 0
+        brightness => $result->{'calculated_brightness'} // 'undefined'
     );
 
     # Publish the state message to the /state topic
-    log_to_journald("Final state to publish: $calculated_state with brightness: " . ($result->{'calculated_brightness'} // 0), LOG_INFO);
+    log_to_journald("Final state to publish: $calculated_state with brightness: " . ($result->{'calculated_brightness'} // 'undefined'), LOG_INFO);
     my $state_json = encode_json(\%state_message);
     $mqtt->retain($state_topic, $state_json);
 
