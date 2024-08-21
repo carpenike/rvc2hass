@@ -660,11 +660,7 @@ sub log_missing_config {
     if ($missing_count >= $missing_log_limit) {
         log_missing_configs();
         $missing_count = 0;
-        }
-        }
-        close $fh;
     }
-        close $fh;
 }
 
 # Log all missing configurations
