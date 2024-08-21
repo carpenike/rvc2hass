@@ -300,6 +300,13 @@ sub handle_dimmable_light {
 sub publish_mqtt {
     my ($config, $result, $resend) = @_;
 
+    # Flatten the configuration by merging the template values
+    if (exists $config->{'<<'}) {
+        my %merged_config = (%{$config->{'<<'}}, %$config);
+        $config = \%merged_config;
+        delete $config->{'<<'};  # Remove the merged template reference
+    }
+
     my $ha_name = $config->{ha_name} // '';
     my $friendly_name = $config->{friendly_name} // '';
 
