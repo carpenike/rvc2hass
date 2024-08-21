@@ -289,7 +289,7 @@ sub handle_dimmable_light {
     
     # Ensure $config and $result are defined
     unless (defined $config && defined $result) {
-        log_to_journald("Undefined config or result in handle_dimmable_light.", LOG_ERROR);
+        log_to_journald("Undefined config or result in handle_dimmable_light.", LOG_ERR);
         return;
     }
     
@@ -341,7 +341,7 @@ sub publish_mqtt {
     
     # Ensure $config and $result are defined
     unless (defined $config && defined $result) {
-        log_to_journald("Undefined config or result in publish_mqtt.", LOG_ERROR);
+        log_to_journald("Undefined config or result in publish_mqtt.", LOG_ERR);
         return;
     }
     
@@ -353,7 +353,7 @@ sub publish_mqtt {
     my $friendly_name = $config->{friendly_name} // $ha_name;
     
     unless ($ha_name) {
-        log_to_journald("ha_name is undefined in config.", LOG_ERROR);
+        log_to_journald("ha_name is undefined in config.", LOG_ERR);
         return;
     }
     
