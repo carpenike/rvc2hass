@@ -1,0 +1,199 @@
+---
+## This configuration file matches a 2021 Entegra Aspire 44R. Use the template section to define parameters that should apply across all of the devices, and then update the sections below to match the devices in your coach.
+
+## The first field is the DGN number. Check the logs from the script to determine which DGNs are being reported by your coach. The second field is the instance number. This is the number that is used to differentiate between multiple devices of the same type.
+## The third field is the friendly name. This is the name that will be displayed in Home Assistant. The fourth field is the Home Assistant name. This is the name that will be used in the MQTT topics.
+## The fifth field is the state topic. This is the MQTT topic that will be used to report the state of the device. The sixth field is the value template. This is the template that will be used to extract the state from the MQTT message.
+## The seventh field is the device class. This is the class that will be used in Home Assistant. The eighth field is the device type. This is the type that will be used in Home Assistant.
+
+# Template section for reusable parameters across the devices
+templates:
+  dimmable_light_template: &dimmable_light_template
+    state_topic: "homeassistant/light/{{ ha_name }}/state"
+    command_topic: "homeassistant/light/{{ ha_name }}/set"
+    value_template: "{{ value_json.state }}"
+    device_class: light
+    brightness_state_topic: "homeassistant/light/{{ ha_name }}/state"
+    brightness_command_topic: "homeassistant/light/{{ ha_name }}/brightness/set"
+    brightness_value_template: "{{ value_json.brightness }}"
+    brightness_command_template: "{{ value }}"
+    payload_on: "ON"
+    payload_off: "OFF"
+    state_value_template: "{{ value_json.state }}"
+
+# Dimmable Lights
+1FEDA:
+  30:
+    - ha_name: master_bath_ceiling_light
+      friendly_name: Master Bathroom Ceiling Light
+      <<: *dimmable_light_template
+
+  31:
+    - ha_name:  master_bath_lav_light
+      friendly_name: Master Bathroom Lavatory Light
+      <<: *dimmable_light_template
+  32:
+    - ha_name:  master_bath_accent_light
+      friendly_name: Master Bathroom Accent Light
+      <<: *dimmable_light_template
+# 17F00:
+#   default:
+#     - ha_name: "general_reset"
+#       friendly_name: "General Reset"
+#       state_topic: "homeassistant/switch/general_reset/state"
+#       value_template: "{{ value_json.reset_status }}"
+#       device_class: switch
+#       device_type: switch
+
+# 1FED8:
+#   default:
+#     - ha_name: "configuration_status"
+#       friendly_name: "Configuration Status"
+#       state_topic: "homeassistant/sensor/configuration_status/state"
+#       value_template: "{{ value_json.config_status }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FFDF:
+#   default:
+#     - ha_name: "generator_ac_status_1"
+#       friendly_name: "Generator AC Status 1"
+#       state_topic: "homeassistant/sensor/generator_ac_status_1/state"
+#       value_template: "{{ value_json.instance }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FFDE:
+#   default:
+#     - ha_name: "generator_ac_status_2"
+#       friendly_name: "Generator AC Status 2"
+#       state_topic: "homeassistant/sensor/generator_ac_status_2/state"
+#       value_template: "{{ value_json.instance }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FFDD:
+#   default:
+#     - ha_name: "generator_ac_status_3"
+#       friendly_name: "Generator AC Status 3"
+#       state_topic: "homeassistant/sensor/generator_ac_status_3/state"
+#       value_template: "{{ value_json.instance }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FF94:
+#   default:
+#     - ha_name: "generator_ac_status_4"
+#       friendly_name: "Generator AC Status 4"
+#       state_topic: "homeassistant/sensor/generator_ac_status_4/state"
+#       value_template: "{{ value_json.instance }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FEC6:
+#   default:
+#     - ha_name: "generator_dc_status_1"
+#       friendly_name: "Generator DC Status 1"
+#       state_topic: "homeassistant/sensor/generator_dc_status_1/state"
+#       value_template: "{{ value_json.charge_voltage }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FEC5:
+#   default:
+#     - ha_name: "generator_dc_configuration_status"
+#       friendly_name: "Generator DC Configuration Status"
+#       state_topic: "homeassistant/sensor/generator_dc_configuration_status/state"
+#       value_template: "{{ value_json.configuration_status }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FEC4:
+#   default:
+#     - ha_name: "generator_dc_command"
+#       friendly_name: "Generator DC Command"
+#       state_topic: "homeassistant/sensor/generator_dc_command/state"
+#       value_template: "{{ value_json.command_status }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FEC3:
+#   default:
+#     - ha_name: "generator_dc_configuration_command"
+#       friendly_name: "Generator DC Configuration Command"
+#       state_topic: "homeassistant/sensor/generator_dc_configuration_command/state"
+#       value_template: "{{ value_json.configuration_command_status }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FEC2:
+#   default:
+#     - ha_name: "generator_dc_equalization_status"
+#       friendly_name: "Generator DC Equalization Status"
+#       state_topic: "homeassistant/sensor/generator_dc_equalization_status/state"
+#       value_template: "{{ value_json.equalization_status }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FEC1:
+#   default:
+#     - ha_name: "generator_dc_equalization_configuration_status"
+#       friendly_name: "Generator DC Equalization Configuration Status"
+#       state_topic: "homeassistant/sensor/generator_dc_equalization_configuration_status/state"
+#       value_template: "{{ value_json.equalization_configuration_status }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FEC0:
+#   default:
+#     - ha_name: "generator_dc_equalization_configuration_command"
+#       friendly_name: "Generator DC Equalization Configuration Command"
+#       state_topic: "homeassistant/sensor/generator_dc_equalization_configuration_command/state"
+#       value_template: "{{ value_json.equalization_configuration_command_status }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FFDC:
+#   default:
+#     - ha_name: "generator_status_1"
+#       friendly_name: "Generator Status 1"
+#       state_topic: "homeassistant/sensor/generator_status_1/state"
+#       value_template: "{{ value_json.status }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FFDB:
+#   default:
+#     - ha_name: "generator_status_2"
+#       friendly_name: "Generator Status 2"
+#       state_topic: "homeassistant/sensor/generator_status_2/state"
+#       value_template: "{{ value_json.temperature_shutdown_switch }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FFDA:
+#   default:
+#     - ha_name: "generator_command"
+#       friendly_name: "Generator Command"
+#       state_topic: "homeassistant/sensor/generator_command/state"
+#       value_template: "{{ value_json.command }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FFD9:
+#   default:
+#     - ha_name: "generator_start_config_status"
+#       friendly_name: "Generator Start Config Status"
+#       state_topic: "homeassistant/sensor/generator_start_config_status/state"
+#       value_template: "{{ value_json.start_config_status }}"
+#       device_class: sensor
+#       device_type: sensor
+
+# 1FFD8:
+#   default:
+#     - ha_name: "generator_start_config_command"
+#       friendly_name: "Generator Start Config Command"
+#       state_topic: "homeassistant/sensor/generator_start_config_command/state"
+#       value_template: "{{ value_json.start_config_command }}"
+#       device_class: sensor
+#       device_type: sensor

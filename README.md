@@ -1,93 +1,151 @@
-# RVC to Home Assistant CAN Bus Monitor
+# RVC to Home Assistant MQTT Bridge
 
-This project is a Perl script that monitors the CAN bus for RVC (RV-C) messages and publishes relevant data to an MQTT broker, making the data available for Home Assistant integration.
+The rvc2hass service is a Perl-based tool that bridges RV-C (Recreational Vehicle-CAN) data with Home Assistant, enabling you to monitor and control your RV devices via Home Assistant. This tool reads CAN bus data, decodes it, and publishes relevant information to an MQTT broker, making it available for Home Assistant to consume.
 
 ## Features
 
-- Monitors CAN bus messages and decodes them using a specified YAML configuration.
-- Publishes decoded data to an MQTT broker for Home Assistant auto-discovery.
-- Supports systemd service for automatic startup and watchdog functionality.
+- **CAN Bus Monitoring**: Captures and processes data from the RV-C network using `candump`.
+- **Home Assistant Integration**: Auto-discovers devices and entities in Home Assistant through MQTT.
+- **MQTT Integration**: Publishes decoded data to an MQTT broker for integration with Home Assistant.
+- **Device Handling**: Supports a variety of RV devices, including lights, switches, and sensors, with the ability to handle dimmable lights.
+- **Retry Logic**: Robust MQTT connection logic with retries and Last Will and Testament (LWT) support.
+- **Watchdog Monitoring**: Ensures continuous operation by monitoring the health of the system and the MQTT connection.
+- **Dynamic Configuration**: Loads device configurations and specifications from YAML files, allowing for easy customization.
 
-## Files
+## TO DO
 
-### `rvc2hass.pl`
+- **Command and Control**: This service handles reading state from the canbus. Future updates will also include a script for allowing Home Assistant to control the RV-C Devices.
 
-The main Perl script that performs the monitoring, decoding, and publishing.
+## Prerequisites
 
-### `rvc-spec.yml`
-
-A YAML file that contains the decoding specifications for each DGN (Data Group Number) on the CAN bus.
-
-### `coach-devices.yml`
-
-A YAML file that maps specific DGN instances to Home Assistant entities.
-
-### `rvc2hass.service`
-
-A systemd service file for managing the script as a service on Linux systems.
+- Perl 5.x
+- `Net::MQTT::Simple` module
+- `YAML::XS` module
+- `Sys::Syslog` module
+- `candump` tool from `can-utils`
+- A working MQTT broker
+- Home Assistant instance
 
 ## Installation
 
-1. **Clone the Repository**
-   
-   ```bash
-   git clone https://github.com/carpenike/rvc2hass.git
-   cd rvc2hass
-   ```
+1. Install the required Perl modules:
+    ```
+    cpanm install YAML::XS JSON Net::MQTT::Simple Try::Tiny IO::Socket::UNIX threads Thread::Queue Time::HiRes File::Basename Sys::Syslog Getopt::Long POSIX
+    ```
 
-2. **Configure the YAML Files**
+2. Ensure `candump` from `can-utils` is installed:
+    ```
+    sudo apt-get install can-utils
+    ```
 
-   Edit `rvc-spec.yml` and `coach-devices.yml` according to your RV-C network setup.
+3. Clone this repository and navigate to the directory:
+    ```
+    git clone https://github.com/carpenike/rvc2hass.git
+    cd rvc2hass
+    ```
 
-3. **Install Dependencies**
+4. Edit the YAML configuration files in the `config` directory to match your setup.
 
-   Make sure Perl and the required Perl modules are installed on your system.
+## Usage
 
-4. **Set Up the Systemd Service**
+To run the script manually, use:
+```
+perl rvc2hass.pl --debug
+```
 
-   Copy the `rvc2hass.service` file to the systemd directory and reload the daemon.
+This will start the script in debug mode, printing additional logs to the console.
 
-   ```bash
-   sudo cp rvc2hass.service /etc/systemd/system/
-   sudo systemctl daemon-reload
-   sudo systemctl enable rvc2hass
-   ```
+## Systemd Integration
 
-5. **Start the Service**
+To run this script as a service on a Linux system using systemd:
 
-   Start the service and check its status.
+1. Copy the `rvc2hass.service` file to `/etc/systemd/system/`:
+    ```
+    sudo cp rvc2hass.service /etc/systemd/system/
+    ```
 
-   ```bash
-   sudo systemctl start rvc2hass
-   sudo systemctl status rvc2hass
-   ```
+2. Create a directory for environment overrides:
+    ```
+    sudo mkdir -p /etc/systemd/system/rvc2hass.service.d/
+    ```
+
+3. Create an `env.conf` file inside this directory to set environment variables:
+    ```
+    sudo nano /etc/systemd/system/rvc2hass.service.d/env.conf
+    ```
+
+    Example `env.conf` file content:
+    ```
+    [Service]
+    Environment="MQTT_HOST=192.168.1.100"
+    Environment="MQTT_PORT=1883"
+    Environment="MQTT_USERNAME=your_mqtt_username"
+    Environment="MQTT_PASSWORD=your_mqtt_password"
+    Environment="WATCHDOG_USEC=30000000"
+    ```
+
+4. Reload systemd to recognize the new service:
+    ```
+    sudo systemctl daemon-reload
+    ```
+
+5. Enable and start the service:
+    ```
+    sudo systemctl enable rvc2hass
+    sudo systemctl start rvc2hass
+    ```
+
+6. Check the status of the service:
+    ```
+    sudo systemctl status rvc2hass
+    ```
+
+## Configuration Files
+
+- `rvc-spec.yml`: Defines the structure and interpretation of CAN bus messages.
+- `coach-devices.yml`: Maps specific CAN bus data to Home Assistant entities and devices.
+
+## Logging
+
+The script logs important events to `journald`, viewable with:
+```
+journalctl -u rvc2hass.service
+```
+
+For more detailed debugging output, start the script with the `--debug` flag or set `Environment="DEBUG=1"` in the systemd `env.conf`.
 
 ## Example `coach-devices.yml` Configuration
 
 ```yaml
+templates:
+  dimmable_light_template: &dimmable_light_template
+    state_topic: "homeassistant/light/{{ ha_name }}/state"
+    command_topic: "homeassistant/light/{{ ha_name }}/set"
+    value_template: "{{ value_json.state }}"
+    device_class: light
+    brightness_state_topic: "homeassistant/light/{{ ha_name }}/state"
+    brightness_command_topic: "homeassistant/light/{{ ha_name }}/brightness/set"
+    brightness_value_template: "{{ value_json.brightness }}"
+    brightness_command_template: "{{ value }}"
+    payload_on: "ON"
+    payload_off: "OFF"
+    state_value_template: "{{ value_json.state }}"
+
 # Dimmable Lights
 1FEDA:
   30:
     - ha_name: master_bath_ceiling_light
       friendly_name: Master Bathroom Ceiling Light
-      state_topic: "homeassistant/light/master_bath_ceiling_light/state"
-      value_template: "{{ value_json['operating status (brightness)'] }}"
-      device_class: light
-      device_type: light
+      <<: *dimmable_light_template
+
   31:
-    - ha_name: master_bath_lav_light
+    - ha_name:  master_bath_lav_light
       friendly_name: Master Bathroom Lavatory Light
-      state_topic: "homeassistant/light/master_bath_lav_light/state"
-      value_template: "{{ value_json['operating status (brightness)'] }}"
-      device_class: light
-      device_type: light
+      <<: *dimmable_light_template
   32:
-    - ha_name: master_bath_accent_light
+    - ha_name:  master_bath_accent_light
       friendly_name: Master Bathroom Accent Light
-      state_topic: "homeassistant/light/master_bath_accent_light/state"
-      value_template: "{{ value_json['operating status (brightness)'] }}"
-      device_class: light
-      device_type: light
+      <<: *dimmable_light_template
 ```
 
 ## MQTT Entries from Dimmable Light Status:
@@ -135,7 +193,11 @@ Topic: homeassistant/light/master_bath_ceiling_light/config
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
+This project is licensed under the MIT License. See the `LICENSE` file for details.
+
+## Contributing
+
+Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
 
 ## Credit
 
