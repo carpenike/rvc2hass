@@ -434,7 +434,7 @@ sub publish_mqtt {
 
     # Determine the correct state based on brightness for lights, or use ON/OFF for switches
     my $calculated_state;
-    my $calculated_brightness = $result->{'calculated_brightness'} // 'undefined';
+    my $calculated_brightness = $result->{'operating status (brightness)'} // 'undefined';
 
     if ($config->{device_class} eq 'light') {
         if (defined $calculated_brightness && $calculated_brightness =~ /^\d+(\.\d+)?$/) {
