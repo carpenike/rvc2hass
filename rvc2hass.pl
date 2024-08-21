@@ -278,10 +278,14 @@ sub process_packet {
             foreach my $config (@$configs) {
                 # Ensure device_class is defined before checking its value
                 if (defined $config->{device_class} && $config->{device_class} eq 'light') {
-                    # Handle dimmable light specifically
-                    handle_dimmable_light($config, $result);
+                    # Check if the light is dimmable
+                    if ($config->{dimmable}) {
+                        handle_dimmable_light($config, $result);
+                    } else {
+                        publish_mqtt($config, $result);
+                    }
                 } else {
-                    # Handle non-dimmable lights or other devices
+                    # Handle non-light devices
                     publish_mqtt($config, $result);
                 }
             }
@@ -290,7 +294,11 @@ sub process_packet {
             my $configs = $lookup->{$dgn}->{default};
             foreach my $config (@$configs) {
                 if (defined $config->{device_class} && $config->{device_class} eq 'light') {
-                    handle_dimmable_light($config, $result);
+                    if ($config->{dimmable}) {
+                        handle_dimmable_light($config, $result);
+                    } else {
+                        publish_mqtt($config, $result);
+                    }
                 } else {
                     publish_mqtt($config, $result);
                 }
