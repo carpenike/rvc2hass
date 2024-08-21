@@ -289,20 +289,29 @@ sub handle_dimmable_light {
 
     # Ensure $result is defined
     if (defined $result) {
-        my $brightness = $result->{'operating status (brightness)'} // 'undefined';
-        log_to_journald("Decoded brightness for $config->{ha_name}: $brightness", LOG_DEBUG);
+        my $brightness = $result->{'operating status (brightness)'};
 
-        # Calculate command based on brightness
-        my $command = ($brightness =~ /^\d+$/ && $brightness > 0) ? 'ON' : 'OFF';
-        log_to_journald("Calculated command: $command for device: $config->{ha_name}", LOG_DEBUG);
+        # Check if brightness is defined and is a valid number
+        if (defined $brightness && $brightness =~ /^\d+$/) {
+            log_to_journald("Decoded brightness for $config->{ha_name}: $brightness", LOG_DEBUG);
 
-        # Store calculated values in the result hash
-        $result->{'calculated_brightness'} = $brightness;
-        $result->{'calculated_command'} = $command;
+            # Calculate command based on brightness
+            my $command = ($brightness > 0) ? 'ON' : 'OFF';
+            log_to_journald("Calculated command: $command for device: $config->{ha_name}", LOG_DEBUG);
 
-        # Publish the MQTT message
-        publish_mqtt($config, $result);
-        log_to_journald("Published state update for $config->{ha_name}: $command with brightness $brightness", LOG_INFO);
+            # Store calculated values in the result hash
+            $result->{'calculated_brightness'} = $brightness;
+            $result->{'calculated_command'} = $command;
+
+            # Publish the MQTT message
+            publish_mqtt($config, $result);
+            log_to_journald("Published state update for $config->{ha_name}: $command with brightness $brightness", LOG_INFO);
+        } else {
+            log_to_journald("Invalid brightness value for $config->{ha_name}: '$brightness'", LOG_WARNING);
+            $result->{'calculated_brightness'} = 0;
+            $result->{'calculated_command'} = 'OFF';
+            publish_mqtt($config, $result);
+        }
     } else {
         log_to_journald("No result data provided for light handling.", LOG_WARNING);
     }
