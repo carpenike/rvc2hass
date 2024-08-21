@@ -51,6 +51,10 @@ my $lookup = LoadFile("$script_dir/config/coach-devices.yml");
 
 # Subscribe to MQTT topics for all devices
 foreach my $dgn (keys %$lookup) {
+
+    # Skip the templates section
+    next if $dgn eq 'templates';
+
     foreach my $instance (keys %{$lookup->{$dgn}}) {
         my $config_entries = $lookup->{$dgn}->{$instance};
 
