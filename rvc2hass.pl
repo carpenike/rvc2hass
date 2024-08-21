@@ -250,7 +250,8 @@ sub process_packet {
         if (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{$instance}) {
             my $configs = $lookup->{$dgn}->{$instance};
             foreach my $config (@$configs) {
-                if ($config->{device_class} eq 'light') {
+                # Ensure device_class is defined before checking its value
+                if (defined $config->{device_class} && $config->{device_class} eq 'light') {
                     # Handle dimmable light specifically
                     handle_dimmable_light($config, $result);
                 } else {
@@ -262,7 +263,7 @@ sub process_packet {
             # Handle default instance if specific instance not found
             my $configs = $lookup->{$dgn}->{default};
             foreach my $config (@$configs) {
-                if ($config->{device_class} eq 'light') {
+                if (defined $config->{device_class} && $config->{device_class} eq 'light') {
                     handle_dimmable_light($config, $result);
                 } else {
                     publish_mqtt($config, $result);
