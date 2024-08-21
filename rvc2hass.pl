@@ -286,158 +286,138 @@ sub process_packet {
 # Handle dimmable light packets, calculating brightness and command state
 sub handle_dimmable_light {
     my ($config, $result) = @_;
-
-    # Ensure $result is defined
-    if (defined $result) {
-        my $brightness = $result->{'operating status (brightness)'};
-
-        # Log the entire result hash to understand what's being passed
-        log_to_journald("Result contents before handling brightness: " . encode_json($result), LOG_DEBUG);
-
-        # Ensure brightness is defined and valid
-        if (defined $brightness && $brightness =~ /^\d+(\.\d+)?$/) {
-            log_to_journald("Decoded brightness for $config->{ha_name}: $brightness (Type: " . ref($brightness) . ")", LOG_DEBUG);
-
-            # Calculate command based on brightness
-            my $command = ($brightness > 0) ? 'ON' : 'OFF';
-            log_to_journald("Calculated command: $command for device: $config->{ha_name}", LOG_DEBUG);
-
-            # Store calculated values in the result hash
-            $result->{'calculated_brightness'} = $brightness;
-            $result->{'calculated_command'} = $command;
-
-            # Log the entire result hash before publishing to MQTT
-            log_to_journald("Result before publish_mqtt: " . encode_json($result), LOG_DEBUG);
-
-            # Publish the MQTT message
-            publish_mqtt($config, $result);
-        } else {
-            log_to_journald("Invalid or undefined brightness value for $config->{ha_name}: '$brightness'", LOG_WARNING);
-            $result->{'calculated_brightness'} = 0;  # Default to 0 brightness
-            $result->{'calculated_command'} = 'OFF';
-            publish_mqtt($config, $result);
-        }
-    } else {
-        log_to_journald("No result data provided for light handling.", LOG_WARNING);
+    
+    # Ensure $config and $result are defined
+    unless (defined $config && defined $result) {
+        log_to_journald("Undefined config or result in handle_dimmable_light.", LOG_ERROR);
+        return;
     }
+    
+    # Log incoming result data
+    log_to_journald("Received result in handle_dimmable_light: " . encode_json($result), LOG_DEBUG);
+    
+    # Extract brightness from result
+    my $brightness = $result->{'operating status (brightness)'};
+    
+    # Log extracted brightness
+    log_to_journald("Extracted brightness: " . (defined $brightness ? $brightness : 'undefined'), LOG_DEBUG);
+    
+    # Validate brightness value
+    if (defined $brightness && $brightness =~ /^\d+(\.\d+)?$/) {
+        # Convert brightness to integer between 0 and 100
+        $brightness = int($brightness);
+        $brightness = 100 if $brightness > 100;
+        $brightness = 0 if $brightness < 0;
+        
+        # Determine command based on brightness
+        my $command = ($brightness > 0) ? 'ON' : 'OFF';
+        
+        # Log calculated values
+        log_to_journald("Calculated command: $command, brightness: $brightness for device: $config->{ha_name}", LOG_DEBUG);
+        
+        # Add calculated values to result
+        $result->{'calculated_brightness'} = $brightness;
+        $result->{'calculated_command'} = $command;
+        
+    } else {
+        # Handle invalid or undefined brightness
+        log_to_journald("Invalid or undefined brightness value for device: $config->{ha_name}", LOG_WARNING);
+        
+        # Set default values
+        $result->{'calculated_brightness'} = 0;
+        $result->{'calculated_command'} = 'OFF';
+    }
+    
+    # Log result before publishing
+    log_to_journald("Result before publishing: " . encode_json($result), LOG_DEBUG);
+    
+    # Publish MQTT message
+    publish_mqtt($config, $result);
 }
 
 # Publish MQTT messages, handling configuration and state updates
 sub publish_mqtt {
     my ($config, $result, $resend) = @_;
-
-    # Flatten the configuration by merging the template values
-    if (exists $config->{'<<'}) {
-        my %merged_config = (%{$config->{'<<'}}, %$config);
-        $config = \%merged_config;
-        delete $config->{'<<'};  # Remove the merged template reference
-    }
-
-    my $ha_name = $config->{ha_name} // '';
-    my $friendly_name = $config->{friendly_name} // '';
-
-    # Ensure `ha_name` is defined before expanding templates
-    if ($ha_name eq '') {
-        log_to_journald("Undefined ha_name for configuration.");
+    
+    # Ensure $config and $result are defined
+    unless (defined $config && defined $result) {
+        log_to_journald("Undefined config or result in publish_mqtt.", LOG_ERROR);
         return;
     }
-
-    # Ensure device_class is defined and sanitize any empty fields
-    $config->{device_class} //= '';  # Default to empty string if not defined
-    $config->{device_class} =~ s/^\s+|\s+$//g;  # Trim any whitespace
-    $config->{device_class} = 'default' if $config->{device_class} eq '';  # Use 'default' if empty
-
-    # Expand templates, ensuring each template variable is properly initialized
+    
+    # Log incoming parameters
+    log_to_journald("Publishing MQTT with config: " . encode_json($config), LOG_DEBUG);
+    log_to_journald("Publishing MQTT with result: " . encode_json($result), LOG_DEBUG);
+    
+    my $ha_name = $config->{ha_name} // '';
+    my $friendly_name = $config->{friendly_name} // $ha_name;
+    
+    unless ($ha_name) {
+        log_to_journald("ha_name is undefined in config.", LOG_ERROR);
+        return;
+    }
+    
+    # Extract calculated state and brightness
+    my $calculated_state = $result->{'calculated_command'} // 'OFF';
+    my $calculated_brightness = $result->{'calculated_brightness'};
+    
+    # Validate calculated_brightness
+    unless (defined $calculated_brightness && $calculated_brightness =~ /^\d+$/) {
+        log_to_journald("Invalid or undefined calculated_brightness for device: $ha_name. Setting to 0.", LOG_WARNING);
+        $calculated_brightness = 0;
+    }
+    
+    # Prepare MQTT topics
     my $state_topic = expand_template($config->{state_topic}, $ha_name);
     my $command_topic = expand_template($config->{command_topic}, $ha_name);
     my $brightness_state_topic = expand_template($config->{brightness_state_topic}, $ha_name);
     my $brightness_command_topic = expand_template($config->{brightness_command_topic}, $ha_name);
-
-    # Ensure the configuration for the MQTT topics is defined before attempting to use them
-    if (!$state_topic || !$command_topic || ($config->{device_class} eq 'light' && (!$brightness_state_topic || !$brightness_command_topic))) {
-        log_to_journald("Undefined or invalid topic template for ha_name: $ha_name");
-        return;
-    }
-
-    # Sanitize topics to remove double slashes
-    $state_topic =~ s/\/{2,}/\//g;
-    $command_topic =~ s/\/{2,}/\//g;
-    $brightness_state_topic =~ s/\/{2,}/\//g if defined $brightness_state_topic;
-    $brightness_command_topic =~ s/\/{2,}/\//g if defined $brightness_command_topic;
-
-    # Log the final MQTT topics for debugging
-    log_to_journald("Publishing MQTT for ha_name $ha_name with topics: state: $state_topic, command: $command_topic", LOG_DEBUG);
-
-    # Send /config message only if not already sent or if resending
+    
+    # Log expanded topics
+    log_to_journald("MQTT topics for $ha_name - state: $state_topic, command: $command_topic, brightness_state: $brightness_state_topic, brightness_command: $brightness_command_topic", LOG_DEBUG);
+    
+    # Publish configuration if necessary
     if ($resend || !exists $sent_configs{$ha_name}) {
-        # Prepare the MQTT configuration message
-        my %config_message = (
+        # Prepare configuration payload
+        my %config_payload = (
             name => $friendly_name,
+            unique_id => $ha_name,
             state_topic => $state_topic,
             command_topic => $command_topic,
-            device_class => $config->{device_class},  # Include device_class if applicable
-            unique_id => $ha_name,  # Ensure unique ID for the device
-            payload_on => "ON",
-            payload_off => "OFF",
-            state_value_template => '{{ value_json.state }}',
-            availability => [
-                {
-                    topic => "rvc2hass/status",
-                    payload_available => "online",
-                    payload_not_available => "offline"
-                }
-            ]
+            device_class => 'light',
+            brightness => JSON::true,
+            brightness_state_topic => $brightness_state_topic,
+            brightness_command_topic => $brightness_command_topic,
+            brightness_scale => 100,
+            payload_on => 'ON',
+            payload_off => 'OFF',
+            availability_topic => 'rvc2hass/status',
+            payload_available => 'online',
+            payload_not_available => 'offline',
         );
-
-        # If the device is a light, include brightness settings
-        if ($config->{device_class} eq 'light') {
-            $config_message{supported_color_modes} = ["brightness"];
-            $config_message{brightness} = JSON::true;
-            $config_message{brightness_scale} = 100;
-            $config_message{brightness_state_topic} = $brightness_state_topic;  # Colocate brightness and state
-            $config_message{brightness_command_topic} = $brightness_command_topic;  # Separate command topic for brightness
-            $config_message{brightness_command_template} = '{{ value }}';
-            $config_message{brightness_value_template} = '{{ value_json.brightness }}';
-        }
-
-        # Publish the configuration message to the /config topic
-        my $config_json = encode_json(\%config_message);
-        $mqtt->retain("homeassistant/$config->{device_class}/$ha_name/config", $config_json);
-
-        # Log that a new device's /config was pushed
-        log_to_journald("Published /config for device: $ha_name ($friendly_name)");
-
-        # Track that this config has been sent
-        $sent_configs{$ha_name} = $config;
+        
+        # Publish configuration
+        my $config_topic = "homeassistant/light/$ha_name/config";
+        my $config_message = encode_json(\%config_payload);
+        $mqtt->retain($config_topic, $config_message);
+        
+        log_to_journald("Published config for $ha_name to topic $config_topic", LOG_INFO);
+        
+        # Mark config as sent
+        $sent_configs{$ha_name} = 1;
     }
-
-    # Additional logging to trace the brightness and state before publishing
-    my $calculated_brightness = $result->{'calculated_brightness'} // 'undefined';
-    log_to_journald("Brightness value before state calculation: $calculated_brightness", LOG_DEBUG);
-
-    # Determine the correct state based on brightness for lights, or use ON/OFF for switches
-    my $calculated_state;
-    if ($config->{device_class} eq 'light') {
-        $calculated_state = ($calculated_brightness && $calculated_brightness > 0) ? 'ON' : 'OFF';
-    } elsif ($config->{device_class} eq 'switch') {
-        $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
-    }
-
-    log_to_journald("Calculated state: $calculated_state for ha_name: $ha_name with brightness: $calculated_brightness", LOG_DEBUG);
-
-    # Prepare the state message
-    my %state_message = (
+    
+    # Prepare state payload
+    my %state_payload = (
         state => $calculated_state,
-        brightness => $calculated_brightness
+        brightness => $calculated_brightness,
     );
-
-    # Publish the state message to the /state topic
-    log_to_journald("Final state to publish: $calculated_state with brightness: $calculated_brightness", LOG_INFO);
-    my $state_json = encode_json(\%state_message);
-    $mqtt->retain($state_topic, $state_json);
-
-    # Debug log the state message being published
-    log_to_journald("Published /state for device: $ha_name ($friendly_name) with state: $state_json", LOG_DEBUG);
+    
+    # Publish state
+    my $state_message = encode_json(\%state_payload);
+    $mqtt->publish($state_topic, $state_message);
+    
+    log_to_journald("Published state for $ha_name to topic $state_topic: $state_message", LOG_INFO);
 }
 
 # Function to replace template variables in topics
