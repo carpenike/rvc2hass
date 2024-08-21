@@ -61,10 +61,6 @@ foreach my $dgn (keys %$lookup) {
     next if $dgn eq 'templates';
 
     foreach my $instance (keys %{$lookup->{$dgn}}) {
-
-        # If the key is 'default', treat it as a special instance case
-        my $effective_instance = ($instance eq 'default') ? '' : $instance;
-
         foreach my $config (@{$lookup->{$dgn}->{$instance}}) {
 
             # Flatten the configuration by merging the template values
@@ -82,10 +78,14 @@ foreach my $dgn (keys %$lookup) {
 
             # Expand and subscribe to the command topic
             my $command_topic = expand_template($config->{command_topic}, $config->{ha_name});
+            
+            # Clear retained messages for command topic
+            $mqtt->retain($command_topic, '') if $command_topic;
+            
             if ($command_topic) {
                 $mqtt->subscribe($command_topic => sub {
                     my ($topic, $message) = @_;
-                    process_mqtt_command($effective_instance, $config, $message, 'state');
+                    process_mqtt_command($instance, $config, $message, 'state');
                 });
             } else {
                 log_to_journald("Failed to expand command topic for ha_name $config->{ha_name}", LOG_ERR);
@@ -94,10 +94,14 @@ foreach my $dgn (keys %$lookup) {
             # If the device is dimmable, expand and subscribe to the brightness command topic
             if ($config->{dimmable}) {
                 my $brightness_command_topic = expand_template($config->{brightness_command_topic}, $config->{ha_name});
+                
+                # Clear retained messages for brightness command topic
+                $mqtt->retain($brightness_command_topic, '') if $brightness_command_topic;
+
                 if ($brightness_command_topic) {
                     $mqtt->subscribe($brightness_command_topic => sub {
                         my ($topic, $message) = @_;
-                        process_mqtt_command($effective_instance, $config, $message, 'brightness');
+                        process_mqtt_command($instance, $config, $message, 'brightness');
                     });
                 } else {
                     log_to_journald("Failed to expand brightness command topic for ha_name $config->{ha_name}", LOG_ERR);
