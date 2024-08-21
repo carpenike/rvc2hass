@@ -292,7 +292,7 @@ sub handle_dimmable_light {
         my $brightness = $result->{'operating status (brightness)'};
 
         # Ensure brightness is defined and valid
-        if (defined $brightness && $brightness =~ /^\d+(\.\d+)?$/) {  # Allowing for decimal brightness
+        if (defined $brightness && $brightness =~ /^\d+(\.\d+)?$/) {
             log_to_journald("Decoded brightness for $config->{ha_name}: $brightness", LOG_DEBUG);
 
             # Calculate command based on brightness
@@ -303,12 +303,11 @@ sub handle_dimmable_light {
             $result->{'calculated_brightness'} = $brightness;
             $result->{'calculated_command'} = $command;
 
-            # Log the full result before publishing
-            log_to_journald("Result before publishing: " . encode_json($result), LOG_DEBUG);
+            # Log the state of the result before passing it to publish_mqtt
+            log_to_journald("Result before publish_mqtt: " . encode_json($result), LOG_DEBUG);
 
             # Publish the MQTT message
             publish_mqtt($config, $result);
-            log_to_journald("Published state update for $config->{ha_name}: $command with brightness $brightness", LOG_INFO);
         } else {
             log_to_journald("Invalid brightness value for $config->{ha_name}: '$brightness'", LOG_WARNING);
             $result->{'calculated_brightness'} = 0;  # Default to 0 brightness
