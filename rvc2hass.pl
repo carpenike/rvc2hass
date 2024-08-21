@@ -234,7 +234,7 @@ sub process_can_bus_data {
 # Process a single CAN bus packet, decoding and publishing to MQTT as needed
 sub process_packet {
     my @parts = @_;
-    log_to_journald("Processing packet: @parts", LOG_DEBUG);
+    # log_to_journald("Processing packet: @parts", LOG_DEBUG);
 
     return unless @parts >= 5;  # Ensure there are enough parts to process
 
