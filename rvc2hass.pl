@@ -285,13 +285,13 @@ sub process_packet {
 
 # Handle dimmable light packets, calculating brightness and command state
 sub handle_dimmable_light {
-    my ($config, $result) = @_;  # Declare $result within the subroutine's scope
+    my ($config, $result) = @_;
 
     # Ensure $result is defined
     if (defined $result) {
         my $brightness = $result->{'operating status (brightness)'};
 
-        # Check if brightness is defined and is a valid number
+        # Ensure brightness is defined and valid
         if (defined $brightness && $brightness =~ /^\d+$/) {
             log_to_journald("Decoded brightness for $config->{ha_name}: $brightness", LOG_DEBUG);
 
