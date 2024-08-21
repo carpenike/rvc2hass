@@ -71,13 +71,15 @@ systemd_notify("READY=1");
 # Subscribe to Home Assistant's availability topic to monitor its state
 $mqtt->subscribe('homeassistant/status' => sub {
     my ($topic, $message) = @_;
+    
     if ($message eq 'online') {
         log_to_journald("Home Assistant is online. Resending configurations...", LOG_INFO);
         foreach my $ha_name (keys %sent_configs) {
             publish_mqtt($sent_configs{$ha_name}, undef, 1);  # Resend config on HA online
         }
+        log_to_journald("All configurations resent due to Home Assistant coming online.", LOG_INFO);
     } elsif ($message eq 'offline') {
-        log_to_journald("Home Assistant is offline.", LOG_INFO);
+        log_to_journald("Home Assistant has gone offline.", LOG_WARNING);
     }
 });
 
