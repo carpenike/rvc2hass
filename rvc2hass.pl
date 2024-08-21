@@ -287,22 +287,22 @@ sub process_packet {
 sub handle_dimmable_light {
     my ($config, $result) = @_;  # Declare $result within the subroutine's scope
 
-    # Log the data bytes and brightness
-    log_to_journald("Raw data bytes: $result->{data}, Decoded brightness: $result->{'operating status (brightness)'}", LOG_DEBUG);
-
     # Ensure $result is defined
     if (defined $result) {
         my $brightness = $result->{'operating status (brightness)'} // 'undefined';
-        log_to_journald("Raw data bytes: $result->{data}, Decoded brightness: $brightness", LOG_DEBUG);
+        log_to_journald("Decoded brightness for $config->{ha_name}: $brightness", LOG_DEBUG);
 
-        my $command = ($brightness == 100) ? 'ON' : ($brightness > 0) ? 'ON' : 'OFF';
+        # Calculate command based on brightness
+        my $command = ($brightness =~ /^\d+$/ && $brightness > 0) ? 'ON' : 'OFF';
         log_to_journald("Calculated command: $command for device: $config->{ha_name}", LOG_DEBUG);
 
+        # Store calculated values in the result hash
         $result->{'calculated_brightness'} = $brightness;
         $result->{'calculated_command'} = $command;
 
+        # Publish the MQTT message
         publish_mqtt($config, $result);
-        log_to_journald("Published state update for $config->{ha_name}: $command", LOG_INFO);
+        log_to_journald("Published state update for $config->{ha_name}: $command with brightness $brightness", LOG_INFO);
     } else {
         log_to_journald("No result data provided for light handling.", LOG_WARNING);
     }
