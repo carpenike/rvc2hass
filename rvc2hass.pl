@@ -453,7 +453,7 @@ sub decode {
     $result{data} = $data;
     $result{name} = $decoder->{name} || "UNKNOWN-$dgn";
 
-    log_to_journald("Decoder found for DGN $dgn: " . encode_json($decoder), LOG_DEBUG);
+    # log_to_journald("Decoder found for DGN $dgn: " . encode_json($decoder), LOG_DEBUG);
 
     # Extract the brightness value safely
     # my $brightness = $result{'operating status (brightness)'} // 'undefined';
