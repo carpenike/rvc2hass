@@ -17,7 +17,7 @@ use Sys::Syslog qw(:standard :macros);
 use Getopt::Long;
 
 # Command-line options
-my $debug = 1;
+my $debug = 0;
 GetOptions("debug" => \$debug);
 
 # Configuration Variables
@@ -47,6 +47,10 @@ my $script_dir = dirname(__FILE__);
 # Load YAML files containing specifications and device configurations
 my $decoders = LoadFile("$script_dir/config/rvc-spec.yml");
 my $lookup = LoadFile("$script_dir/config/coach-devices.yml");
+
+# Debug: Print out the lookup structure to verify template inclusion
+use Data::Dumper;
+log_to_journald("Loaded YAML structure: " . Dumper($lookup));
 
 # Create a temporary directory for undefined DGNs
 my $temp_dir = tempdir(CLEANUP => 1);
@@ -397,10 +401,10 @@ sub expand_template {
 
     # Perform the substitution
     $template =~ s/\{\{ ha_name \}\}/$ha_name/g;
-    
-    # Log the expanded template for debugging
-    log_debug("Expanded template for ha_name $ha_name: $template");
-    
+
+    # Debug log to verify template expansion
+    log_to_journald("Expanded template for ha_name $ha_name: $template");
+
     return $template;
 }
 
