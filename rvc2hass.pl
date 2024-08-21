@@ -35,8 +35,6 @@ my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
 my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it for watchdog interval
 my %sent_configs;  # Track sent configurations to avoid resending
 my %missing_configs;  # Track missing configs to avoid duplicate logging
-my $missing_log_limit = 10;  # Log after every 10 missing configurations
-my $missing_count = 0;  # Counter for missing logs
 
 # Only log environment variables if debugging is enabled
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } grep { $_ !~ /PASSWORD|SECRET/ } keys %ENV), LOG_DEBUG) if $debug;
@@ -247,9 +245,6 @@ sub process_can_bus_data {
         process_packet(@parts);
     }
     close $can_file;
-
-    # Log any missing configurations accumulated during processing
-    log_missing_configs();
 }
 
 # Process a single CAN bus packet, decoding and publishing to MQTT as needed
@@ -653,21 +648,8 @@ sub log_missing_config {
     my $key = "$dgn-$instance";
 
     unless (exists $missing_configs{$key}) {
+        log_to_journald("No matching config found for DGN $dgn and instance $instance", LOG_WARNING);
         $missing_configs{$key} = 1;
-        $missing_count++;
-    }
-
-    if ($missing_count >= $missing_log_limit) {
-        log_missing_configs();
-        $missing_count = 0;
-    }
-}
-
-# Log all missing configurations
-sub log_missing_configs {
-    if (%missing_configs) {
-        log_to_journald("No matching config found for the following DGN and instances: " . join(", ", keys %missing_configs), LOG_WARNING);
-        %missing_configs = ();  # Clear after logging
     }
 }
 
