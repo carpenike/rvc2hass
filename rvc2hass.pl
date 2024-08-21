@@ -169,6 +169,7 @@ sub start_watchdog {
     my $heartbeat_topic = "rvc2hass/heartbeat";
     my $heartbeat_received = 0;
     my $keep_running = 1;
+    no warnings 'exiting';  # Disable 'exiting' warnings for the entire subroutine
 
     # Subscribe to the heartbeat topic to listen for confirmation messages
     $mqtt->subscribe($heartbeat_topic => sub {
@@ -183,7 +184,6 @@ sub start_watchdog {
     my $watchdog_thread = threads->create(sub {
         while ($keep_running) {
             my $mqtt_success = 0;
-            no warnings 'exiting';  # Suppress exiting warnings here
 
             try {
                 # Reset the heartbeat_received flag
