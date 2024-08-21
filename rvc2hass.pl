@@ -303,9 +303,9 @@ sub handle_dimmable_light {
             $result->{'calculated_brightness'} = $brightness;
             $result->{'calculated_command'} = $command;
 
-            # Additional log to ensure brightness is set correctly
-            log_to_journald("Brightness in handle_dimmable_light: " . ($result->{'calculated_brightness'} // 'undefined'), LOG_DEBUG);
-            
+            # Log to verify the result before publishing
+            log_to_journald("Result before publishing: " . encode_json($result), LOG_DEBUG);
+
             # Publish the MQTT message
             publish_mqtt($config, $result);
             log_to_journald("Published state update for $config->{ha_name}: $command with brightness $brightness", LOG_INFO);
@@ -409,10 +409,6 @@ sub publish_mqtt {
         $sent_configs{$ha_name} = $config;
     }
 
-    # Log the brightness and command before publishing
-    log_to_journald("Brightness in publish_mqtt: " . ($result->{'calculated_brightness'} // 'undefined'), LOG_DEBUG);
-    log_to_journald("Command in publish_mqtt: " . ($result->{'calculated_command'} // 'undefined'), LOG_DEBUG);
-
     # Determine the correct state based on brightness for lights, or use ON/OFF for switches
     my $calculated_state;
     if ($config->{device_class} eq 'light') {
@@ -420,6 +416,9 @@ sub publish_mqtt {
     } elsif ($config->{device_class} eq 'switch') {
         $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
     }
+
+    # Additional logging to trace the brightness and state before publishing
+    log_to_journald("Calculated state: $calculated_state for ha_name: $ha_name with brightness: " . ($result->{'calculated_brightness'} // 'undefined'), LOG_DEBUG);
 
     # Prepare the state message
     my %state_message = (
@@ -508,7 +507,7 @@ sub decode {
     $result{instance} = $result{instance} // undef;
 
     # Additional log to ensure the result is being decoded correctly
-    log_to_journald("Decoded values for DGN $dgn: " . encode_json(\%result), LOG_DEBUG);
+    #log_to_journald("Decoded values for DGN $dgn: " . encode_json(\%result), LOG_DEBUG);
 
     return \%result;
 }
