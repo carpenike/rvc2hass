@@ -37,112 +37,139 @@ templates:
   25:
     - ha_name: bedroom_ceiling_light
       friendly_name: Bedroom Ceiling Light
+      suggested_area: Bedroom
       <<: *dimmable_light_template
   27:
     - ha_name: bedroom_accent_light
       friendly_name: Bedroom Accent Light
+      suggested_area: Bedroom
       <<: *dimmable_light_template
   28:
     - ha_name: bedroom_vanity_light
       friendly_name: Bedroom Vanity Light
+      suggested_area: Bedroom
       <<: *dimmable_light_template
   29:
     - ha_name: bedroom_reading_light
       friendly_name: Bedroom Reading Light
+      suggested_area: Bedroom
       <<: *dimmable_light_template
   30:
     - ha_name: master_bath_ceiling_light
       friendly_name: Master Bathroom Ceiling Light
+      suggested_area: Master Bathroom
       <<: *dimmable_light_template
   31:
     - ha_name:  master_bath_lav_light
       friendly_name: Master Bathroom Lavatory Light
+      suggested_area: Master Bathroom
       <<: *dimmable_light_template
   32:
     - ha_name:  master_bath_accent_light
       friendly_name: Master Bathroom Accent Light
+      suggested_area: Master Bathroom
       <<: *dimmable_light_template
   33:
     - ha_name:  mid_bath_ceiling_light
       friendly_name: Mid Bathroom Ceiling Light
+      suggested_area: Mid Bathroom
       <<: *dimmable_light_template
   34:
     - ha_name:  mid_bath_accent_light
       friendly_name: Mid Bathroom Accent Light
+      suggested_area: Mid Bathroom
       <<: *dimmable_light_template
   35:
     - ha_name:  entrance_ceiling_light
       friendly_name: Entrance Ceiling Light
+      suggested_area: Entrance
       <<: *dimmable_light_template
   37:
     - ha_name:  main_ceiling_light
       friendly_name: Main Ceiling Light
+      suggested_area: Main Living Area
       <<: *dimmable_light_template
   38:
     - ha_name:  bedroom_courtesy_light
       friendly_name: Bedroom Courtesy Light
+      suggested_area: Master Bedroom
       <<: *dimmable_light_template
   39:
     - ha_name:  main_ceiling_accent_light
       friendly_name: Main Ceiling Accent Light
+      suggested_area: Main Living Area
       <<: *dimmable_light_template
   41:
     - ha_name:  main_driver_side_ceiling_light
       friendly_name: Main Driver Side Ceiling Light
+      suggested_area: Main Living Area
       <<: *dimmable_light_template
   42:
     - ha_name:  main_passenger_side_ceiling_light
       friendly_name: Main Passenger Side Ceiling Light
+      suggested_area: Main Living Area
       <<: *dimmable_light_template
   43:
     - ha_name:  main_driver_side_slide_light
       friendly_name: Main Driver Side Slide Light
+      suggested_area: Main Living Area
       <<: *dimmable_light_template
   45:
     - ha_name:  main_dinette_light
       friendly_name: Main Dinette Light
+      suggested_area: Main Living Area
       <<: *dimmable_light_template
   46:
     - ha_name:  main_sink_light
       friendly_name: Main Sink Light
+      suggested_area: Main Living Area
       <<: *dimmable_light_template
   47:
     - ha_name:  main_midship_light
       friendly_name: Main Midship Light
+      suggested_area: Main Living Area
       <<: *dimmable_light_template
 
 # Exterior Lights
   51:
     - ha_name:  exterior_driver_side_awning_light
       friendly_name: Exterior Driver Side Awning Light
+      suggested_area: Exterior
       <<: *switchable_light_template
   52:
     - ha_name:  exterior_passenger_side_awning_light
       friendly_name: Exterior Passenger Side Awning Light
+      suggested_area: Exterior
       <<: *switchable_light_template
   53:
     - ha_name:  basement_cargo_light
       friendly_name: Basement Cargo Light
+      suggested_area: Basement
       <<: *switchable_light_template
   54:
     - ha_name:  exterior_under_slide_light
       friendly_name: Exterior Under Slide Light
+      suggested_area: Exterior
       <<: *switchable_light_template
   57:
     - ha_name:  exterior_driver_side_security_light
       friendly_name: Exterior Driver Side Security Light
+      suggested_area: Exterior
       <<: *switchable_light_template
   58:
     - ha_name:  exterior_passenger_side_security_light
       friendly_name: Exterior Passenger Side Security Light
+      suggested_area: Exterior
       <<: *switchable_light_template
   59:
     - ha_name:  exterior_motion_light
       friendly_name: Exterior Motion Light
+      suggested_area: Exterior
       <<: *switchable_light_template
   60:
     - ha_name:  exterior_porch_light
       friendly_name: Exterior Porch Light
+      suggested_area: Exterior
       <<: *switchable_light_template
 
 # 17F00:
