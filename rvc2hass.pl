@@ -291,6 +291,9 @@ sub handle_dimmable_light {
     if (defined $result) {
         my $brightness = $result->{'operating status (brightness)'};
 
+        # Log the raw brightness value for debugging
+        log_to_journald("Raw brightness value for $config->{ha_name}: " . (defined $brightness ? $brightness : 'undefined'), LOG_DEBUG);
+
         # Ensure brightness is defined and valid
         if (defined $brightness && $brightness =~ /^\d+$/) {
             log_to_journald("Decoded brightness for $config->{ha_name}: $brightness", LOG_DEBUG);
