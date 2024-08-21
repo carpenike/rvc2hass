@@ -285,7 +285,10 @@ sub process_packet {
 
 # Handle dimmable light packets, calculating brightness and command state
 sub handle_dimmable_light {
-    my ($config, $result) = @_;  # Declare $result within the scope of this subroutine
+    my ($config, $result) = @_;  # Declare $result within the subroutine's scope
+
+    # Log the data bytes and brightness
+    log_to_journald("Raw data bytes: $result->{data}, Decoded brightness: $result->{'operating status (brightness)'}", LOG_DEBUG);
 
     # Ensure $result is defined
     if (defined $result) {
