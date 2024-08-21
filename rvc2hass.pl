@@ -308,7 +308,7 @@ sub handle_dimmable_light {
             log_to_journald("Published state update for $config->{ha_name}: $command with brightness $brightness", LOG_INFO);
         } else {
             log_to_journald("Invalid brightness value for $config->{ha_name}: '$brightness'", LOG_WARNING);
-            $result->{'calculated_brightness'} = 0;
+            $result->{'calculated_brightness'} = 0;  # Default to 0 brightness
             $result->{'calculated_command'} = 'OFF';
             publish_mqtt($config, $result);
         }
