@@ -234,6 +234,8 @@ sub process_can_bus_data {
 # Process a single CAN bus packet, decoding and publishing to MQTT as needed
 sub process_packet {
     my @parts = @_;
+    log_to_journald("Processing packet: @parts", LOG_DEBUG);
+
     return unless @parts >= 5;  # Ensure there are enough parts to process
 
     my $can_id_hex = $parts[2];
@@ -241,10 +243,13 @@ sub process_packet {
     my $dgn_bin = substr($binCanId, 4, 17);  # Extract DGN from CAN ID
     my $dgn = sprintf("%05X", oct("0b$dgn_bin"));  # Convert binary DGN to hex
 
+    log_to_journald("DGN: $dgn, Data: @parts[4..$#parts]", LOG_DEBUG);
+
     my $data_bytes = join '', @parts[4..$#parts];
     my $result = decode($dgn, $data_bytes);
 
     if ($result) {
+        log_to_journald("Decoded result: " . encode_json($result), LOG_DEBUG);
         my $instance = $result->{'instance'} // 'default';  # Default to 'default' if instance not found
 
         if (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{$instance}) {
@@ -443,6 +448,8 @@ sub decode {
     $result{data} = $data;
     $result{name} = $decoder->{name} || "UNKNOWN-$dgn";
 
+    log_to_journald("Decoder found for DGN $dgn: " . encode_json($decoder), LOG_DEBUG);
+
     my @parameters;
     push(@parameters, @{$decoders->{$decoder->{alias}}->{parameters}}) if ($decoder->{alias});
     push(@parameters, @{$decoder->{parameters}}) if ($decoder->{parameters});
@@ -477,6 +484,8 @@ sub decode {
             $result{"$name definition"} = $value_def;
         }
     }
+
+    log_to_journald("Decoded values for DGN $dgn: " . encode_json(\%result), LOG_DEBUG);
 
     $result{instance} = $result{instance} // undef;
 
