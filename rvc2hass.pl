@@ -285,7 +285,7 @@ sub process_packet {
 
 # Handle dimmable light packets, calculating brightness and command state
 sub handle_dimmable_light {
-    my ($config, $result) = @_;
+    my ($config, $result) = @_;  # Declare $result within the scope of this subroutine
 
     # Ensure $result is defined
     if (defined $result) {
@@ -304,6 +304,7 @@ sub handle_dimmable_light {
         log_to_journald("No result data provided for light handling.", LOG_WARNING);
     }
 }
+
 
 # Publish MQTT messages, handling configuration and state updates
 sub publish_mqtt {
