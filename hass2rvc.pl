@@ -53,18 +53,35 @@ my $lookup = LoadFile("$script_dir/config/coach-devices.yml");
 foreach my $dgn (keys %$lookup) {
     foreach my $instance (keys %{$lookup->{$dgn}}) {
         my $config = $lookup->{$dgn}->{$instance};
-        my $command_topic = expand_template($config->{command_topic}, $config->{ha_name});
-        $mqtt->subscribe($command_topic => sub {
-            my ($topic, $message) = @_;
-            process_mqtt_command($config, $message, 'state');
-        });
 
+        # Ensure that ha_name is defined before proceeding
+        unless (defined $config->{ha_name}) {
+            log_to_journald("Missing ha_name for DGN $dgn, instance $instance", LOG_ERR);
+            next;
+        }
+
+        # Expand and subscribe to the command topic
+        my $command_topic = expand_template($config->{command_topic}, $config->{ha_name});
+        if ($command_topic) {
+            $mqtt->subscribe($command_topic => sub {
+                my ($topic, $message) = @_;
+                process_mqtt_command($config, $message, 'state');
+            });
+        } else {
+            log_to_journald("Failed to expand command topic for ha_name $config->{ha_name}", LOG_ERR);
+        }
+
+        # If the device is dimmable, expand and subscribe to the brightness command topic
         if ($config->{dimmable}) {
             my $brightness_command_topic = expand_template($config->{brightness_command_topic}, $config->{ha_name});
-            $mqtt->subscribe($brightness_command_topic => sub {
-                my ($topic, $message) = @_;
-                process_mqtt_command($config, $message, 'brightness');
-            });
+            if ($brightness_command_topic) {
+                $mqtt->subscribe($brightness_command_topic => sub {
+                    my ($topic, $message) = @_;
+                    process_mqtt_command($config, $message, 'brightness');
+                });
+            } else {
+                log_to_journald("Failed to expand brightness command topic for ha_name $config->{ha_name}", LOG_ERR);
+            }
         }
     }
 }
@@ -296,10 +313,9 @@ sub start_watchdog {
 sub expand_template {
     my ($template, $ha_name) = @_;
 
-    # Check if the template is defined and non-empty
-    if (!defined $template || $template eq '') {
-        log_to_journald("Undefined or empty template provided for ha_name: $ha_name", LOG_ERR);
-        return '';  # Return an empty string to avoid further issues
+    if (!defined $ha_name || $ha_name eq '') {
+        log_to_journald("Undefined or empty ha_name in template expansion", LOG_ERR);
+        return $template;  # Or handle it as appropriate, e.g., skipping this topic
     }
 
     # Perform the substitution
