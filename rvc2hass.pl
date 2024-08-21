@@ -466,8 +466,8 @@ sub publish_mqtt {
     $mqtt->retain($state_topic, $state_json);
 
     # Log changes only if the state or brightness has changed
-    if ($resend || $calculated_state ne $last_state || $calculated_brightness != $last_brightness) {
-        log_to_journald("State or brightness has changed for $ha_name. Publishing update: state=$calculated_state, brightness=$calculated_brightness", LOG_INFO);
+    if ($resend || $calculated_state ne $last_state || ($is_dimmable && $calculated_brightness != $last_brightness)) {
+        log_to_journald("State or brightness has changed for $ha_name. Publishing update: state=$calculated_state" . ($is_dimmable ? ", brightness=$calculated_brightness" : ""), LOG_INFO);
     }
 
     # Update the last sent state and brightness
