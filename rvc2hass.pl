@@ -334,8 +334,6 @@ sub handle_dimmable_light {
     # Publish MQTT message
     publish_mqtt($config, $result);
 }
-
-# Publish MQTT messages, handling configuration and state updates
 sub publish_mqtt {
     my ($config, $result, $resend) = @_;
 
@@ -420,12 +418,14 @@ sub publish_mqtt {
 
     # Determine the correct state based on brightness for lights, or use ON/OFF for switches
     my $calculated_state;
+    my $calculated_brightness = $result->{'operating status (brightness)'} // 'undefined';
+
     if ($config->{device_class} eq 'light') {
-        if (defined $result->{'calculated_brightness'} && $result->{'calculated_brightness'} =~ /^\d+(\.\d+)?$/) {
-            $calculated_state = ($result->{'calculated_brightness'} > 0) ? 'ON' : 'OFF';
+        if (defined $calculated_brightness && $calculated_brightness =~ /^\d+(\.\d+)?$/) {
+            $calculated_state = ($calculated_brightness > 0) ? 'ON' : 'OFF';
         } else {
             log_to_journald("Invalid or undefined calculated_brightness for device: $ha_name. Setting to 0.", LOG_WARNING);
-            $result->{'calculated_brightness'} = 0;  # Default to 0 brightness
+            $calculated_brightness = 0;  # Default to 0 brightness
             $calculated_state = 'OFF';
         }
     } elsif ($config->{device_class} eq 'switch') {
@@ -433,16 +433,16 @@ sub publish_mqtt {
     }
 
     # Log the brightness value before state calculation
-    log_to_journald("Brightness value before state calculation: " . ($result->{'calculated_brightness'} // 'undefined'), LOG_DEBUG);
+    log_to_journald("Brightness value before state calculation: $calculated_brightness", LOG_DEBUG);
 
     # Prepare the state message
     my %state_message = (
         state => $calculated_state,
-        brightness => $result->{'calculated_brightness'} // 'undefined'
+        brightness => $calculated_brightness
     );
 
     # Publish the state message to the /state topic
-    log_to_journald("Final state to publish: $calculated_state with brightness: " . ($result->{'calculated_brightness'} // 'undefined'), LOG_INFO);
+    log_to_journald("Final state to publish: $calculated_state with brightness: $calculated_brightness", LOG_INFO);
     my $state_json = encode_json(\%state_message);
     $mqtt->retain($state_topic, $state_json);
 
