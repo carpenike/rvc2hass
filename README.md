@@ -150,44 +150,43 @@ templates:
 
 ## MQTT Entries from Dimmable Light Status:
 
-Topic: homeassistant/light/master_bath_ceiling_light/state
-
-```json
-{
-  "load status definition": "undefined",
-  "data": "1E7CC6FCFF0404FF",
-  "last command": 4,
-  "overcurrent status": 3,
-  "enable status definition": "undefined",
-  "interlock status": 0,
-  "override status": 3,
-  "interlock status definition": "undefined",
-  "last command definition": "stop",
-  "load status": 1,
-  "instance": 30,
-  "enable status": 3,
-  "delay/duration": 255,
-  "name": "DC_DIMMER_STATUS_3",
-  "operating status (brightness)": 99,
-  "lock status definition": "undefined",
-  "dgn": "1FEDA",
-  "overcurrent status definition": "undefined",
-  "group": "01111100",
-  "lock status": 0,
-  "override status definition": "undefined"
-}
-```
-
 Topic: homeassistant/light/master_bath_ceiling_light/config
 
 ```json
 {
-  "value_template": "{{ value_json['operating status (brightness)'] }}",
-  "name": "Master Bathroom Ceiling Light",
-  "state_topic": "homeassistant/light/master_bath_ceiling_light/state",
-  "json_attributes_topic": "homeassistant/light/master_bath_ceiling_light/state",
+  "brightness_scale": 100,
+  "availability": [
+    {
+      "topic": "rvc2hass/status",
+      "payload_not_available": "offline",
+      "payload_available": "online"
+    }
+  ],
+  "device_class": "light",
+  "brightness": true,
+  "supported_color_modes": [
+    "brightness"
+  ],
+  "brightness_value_template": "{{ value_json.brightness }}",
+  "command_topic": "homeassistant/light/master_bath_ceiling_light/set",
   "unique_id": "master_bath_ceiling_light",
-  "device_class": "light"
+  "brightness_command_topic": "homeassistant/light/master_bath_ceiling_light/brightness/set",
+  "brightness_command_template": "{{ value }}",
+  "state_value_template": "{{ value_json.state }}",
+  "name": "Master Bathroom Ceiling Light",
+  "payload_on": "ON",
+  "payload_off": "OFF",
+  "state_topic": "homeassistant/light/master_bath_ceiling_light/state",
+  "brightness_state_topic": "homeassistant/light/master_bath_ceiling_light/state"
+}
+```
+
+Topic: homeassistant/light/master_bath_ceiling_light/state
+
+```json
+{
+  "state": "ON",
+  "brightness": 60
 }
 ```
 
