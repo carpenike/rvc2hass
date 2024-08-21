@@ -291,12 +291,12 @@ sub handle_dimmable_light {
     if (defined $result) {
         my $brightness = $result->{'operating status (brightness)'};
 
-        # Log the raw brightness value for debugging
-        log_to_journald("Raw brightness value for $config->{ha_name}: " . (defined $brightness ? $brightness : 'undefined'), LOG_DEBUG);
+        # Log the raw brightness value extracted from the result
+        log_to_journald("Extracted brightness value: " . ($brightness // 'undefined'), LOG_DEBUG);
 
         # Ensure brightness is defined and valid
         if (defined $brightness && $brightness =~ /^\d+$/) {
-            log_to_journald("Decoded brightness for $config->{ha_name}: $brightness", LOG_DEBUG);
+            log_to_journald("Valid brightness value for $config->{ha_name}: $brightness", LOG_DEBUG);
 
             # Calculate command based on brightness
             my $command = ($brightness > 0) ? 'ON' : 'OFF';
@@ -409,31 +409,10 @@ sub publish_mqtt {
         $sent_configs{$ha_name} = $config;
     }
 
-    # Determine the correct state based on brightness for lights, or use ON/OFF for switches
-    my $calculated_state;
-    if ($config->{device_class} eq 'light') {
-        $calculated_state = ($result->{'calculated_brightness'} && $result->{'calculated_brightness'} > 0) ? 'ON' : 'OFF';
-    } elsif ($config->{device_class} eq 'switch') {
-        $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
-    }
+    # Log the brightness and command before publishing
+    log_to_journald("Brightness in publish_mqtt: " . ($result->{'calculated_brightness'} // 'undefined'), LOG_DEBUG);
+    log_to_journald("Command in publish_mqtt: " . ($result->{'calculated_command'} // 'undefined'), LOG_DEBUG);
 
-    # Log the brightness value just before publishing
-    log_to_journald("Final brightness value before publish: " . ($result->{'calculated_brightness'} // 'undefined'), LOG_DEBUG);
-
-    # Prepare the state message
-    my %state_message = (
-        state => $calculated_state,
-        brightness => $result->{'calculated_brightness'} // 'undefined'
-    );
-
-    # Publish the state message to the /state topic
-    log_to_journald("Final state to publish: $calculated_state with brightness: " . ($result->{'calculated_brightness'} // 'undefined'), LOG_INFO);
-    my $state_json = encode_json(\%state_message);
-    $mqtt->retain($state_topic, $state_json);
-
-    # Debug log the state message being published
-    log_to_journald("Published /state for device: $ha_name ($friendly_name) with state: $state_json", LOG_DEBUG);
-}
 
 # Function to replace template variables in topics
 sub expand_template {
