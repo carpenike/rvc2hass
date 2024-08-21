@@ -291,19 +291,16 @@ sub handle_dimmable_light {
     if (defined $result) {
         my $brightness = $result->{'operating status (brightness)'};
 
-        # Log the brightness value extracted from the CAN data
-        log_to_journald("Extracted brightness value from DGN $result->{dgn}: $brightness", LOG_DEBUG);
-
-        # Ensure brightness is defined and valid, allowing for floating-point values
+        # Ensure brightness is defined and valid
         if (defined $brightness && $brightness =~ /^\d+(\.\d+)?$/) {
-            log_to_journald("Decoded brightness for $config->{ha_name}: $brightness", LOG_DEBUG);
+            log_to_journald("Decoded brightness for $config->{ha_name}: $brightness (Type: " . ref($brightness) . ")", LOG_DEBUG);
 
             # Calculate command based on brightness
             my $command = ($brightness > 0) ? 'ON' : 'OFF';
             log_to_journald("Calculated command: $command for device: $config->{ha_name}", LOG_DEBUG);
 
             # Store calculated values in the result hash
-            $result->{'calculated_brightness'} = $brightness;
+            $result->{'calculated_brightness'} = int($brightness);  # Convert brightness to an integer
             $result->{'calculated_command'} = $command;
 
             # Log the entire result hash before publishing to MQTT
