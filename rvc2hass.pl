@@ -419,6 +419,9 @@ sub publish_mqtt {
         $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
     }
 
+    # Log the contents of the result hash to trace brightness and state
+    log_to_journald("Result contents: " . encode_json($result), LOG_DEBUG);
+
     # Additional logging to trace the brightness and state before publishing
     log_to_journald("Calculated state: $calculated_state for ha_name: $ha_name with brightness: " . ($result->{'calculated_brightness'} // 'undefined'), LOG_DEBUG);
 
