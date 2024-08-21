@@ -456,9 +456,9 @@ sub decode {
     log_to_journald("Decoder found for DGN $dgn: " . encode_json($decoder), LOG_DEBUG);
 
     # Extract the brightness value safely
-    my $brightness = $result{'operating status (brightness)'} // 'undefined';
+    # my $brightness = $result{'operating status (brightness)'} // 'undefined';
     
-    log_to_journald("Raw data bytes: $data, Decoded brightness: $brightness", LOG_DEBUG);
+    # log_to_journald("Raw data bytes: $data, Decoded brightness: $brightness", LOG_DEBUG);
 
     my @parameters;
     push(@parameters, @{$decoders->{$decoder->{alias}}->{parameters}}) if ($decoder->{alias});
