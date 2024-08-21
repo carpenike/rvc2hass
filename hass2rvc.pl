@@ -12,7 +12,7 @@ use Getopt::Long;
 use POSIX qw(strftime);
 use File::Basename;
 use threads;
-use threads::shared;  # Required for shared variables and locks
+use threads::shared;
 
 # Command-line options
 my $debug = 0;
@@ -28,16 +28,17 @@ my $mqtt_port = $ENV{MQTT_PORT} || 1883;
 my $mqtt_username = $ENV{MQTT_USERNAME};
 my $mqtt_password = $ENV{MQTT_PASSWORD};
 my $max_retries = 5;
-my $retry_delay = 5;  # Time to wait between retry attempts in seconds
+my $retry_delay = 5;
 my $can_interface = 'can0';
 my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
-my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it for watchdog interval
-my $can_bus_mutex :shared; # Mutex to ensure only one CAN bus message is sent at a time
+my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;
+my $can_bus_mutex :shared;
+my $keep_running :shared = 1;
 
 # Only log environment variables if debugging is enabled
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } grep { $_ !~ /PASSWORD|SECRET/ } keys %ENV), LOG_DEBUG) if $debug;
 
-$ENV{MQTT_SIMPLE_ALLOW_INSECURE_LOGIN} = 1;  # Allow unencrypted connection with credentials
+$ENV{MQTT_SIMPLE_ALLOW_INSECURE_LOGIN} = 1;
 
 # Initialize MQTT connection
 my $mqtt = initialize_mqtt();
@@ -49,6 +50,10 @@ start_watchdog(\$mqtt, $watchdog_interval) if $watchdog_interval;
 my $script_dir = dirname(__FILE__);
 my $lookup = LoadFile("$script_dir/config/coach-devices.yml");
 
+# Signal handling
+$SIG{'INT'} = sub { shutdown_gracefully("INT") };
+$SIG{'TERM'} = sub { shutdown_gracefully("TERM") };
+
 # Subscribe to MQTT topics for all devices
 foreach my $dgn (keys %$lookup) {
 
@@ -56,12 +61,7 @@ foreach my $dgn (keys %$lookup) {
     next if $dgn eq 'templates';
 
     foreach my $instance (keys %{$lookup->{$dgn}}) {
-        my $config_entries = $lookup->{$dgn}->{$instance};
-
-        # Ensure the config_entries is always treated as an array
-        $config_entries = [$config_entries] unless ref($config_entries) eq 'ARRAY';
-
-        foreach my $config (@$config_entries) {
+        foreach my $config (@{$lookup->{$dgn}->{$instance}}) {
 
             # Flatten the configuration by merging the template values
             if (exists $config->{'<<'}) {
@@ -103,11 +103,17 @@ foreach my $dgn (keys %$lookup) {
     }
 }
 
-# Add a simple loop to keep the script running
-while (1) {
+# Notify systemd that the script has started successfully
+systemd_notify("READY=1");
+
+# Main loop to keep the script running
+while ($keep_running) {
     $mqtt->tick();
-    sleep(1);  # Adjust sleep duration as needed to control tick frequency
+    sleep(1);
 }
+
+log_to_journald("Exiting main loop. Cleaning up...", LOG_INFO);
+exit(0);
 
 # Process incoming MQTT commands and convert to CAN bus messages
 sub process_mqtt_command {
@@ -170,18 +176,25 @@ sub send_can_command {
         # Log the CAN bus command that would be sent
         log_to_journald("CAN bus command: cansend $can_interface $hexCanId#$hexData", LOG_INFO);
 
-        # Actually send the command to the CAN bus
-        #system("cansend $can_interface $hexCanId#$hexData") if (!$debug);
+        # Uncomment the line below to enable CAN bus sending
+        # system("cansend $can_interface $hexCanId#$hexData") if (!$debug);
     }
+}
+
+# Handle shutdown gracefully
+sub shutdown_gracefully {
+    my ($signal) = @_;
+    log_to_journald("Received $signal signal. Shutting down...", LOG_INFO);
+    $keep_running = 0;
 }
 
 # Initialize and connect to the MQTT broker, with retry logic and LWT
 sub initialize_mqtt {
     my $mqtt;
-    my $success = 0;  # Flag to track if connection was successful
-    
+    my $success = 0;
+
     for (my $attempt = 1; $attempt <= $max_retries; $attempt++) {
-        no warnings 'exiting';  # Suppress 'exiting' warnings within this scope
+        no warnings 'exiting';
         try {
             my $connection_string = "$mqtt_host:$mqtt_port";
             
@@ -214,21 +227,21 @@ sub initialize_mqtt {
             # Wait for a confirmation message from the broker
             for (my $wait = 0; $wait < 5; $wait++) {
                 last if $message_received;
-                $mqtt->tick();  # Process incoming messages
+                $mqtt->tick();
                 sleep(1);
             }
 
             if ($message_received && $message_received eq "MQTT startup successful") {
                 log_to_journald("Successfully connected to MQTT broker on attempt $attempt.", LOG_INFO);
                 $success = 1;
-                last;  # Exit loop on success
+                last;
             } else {
                 log_to_journald("Failed to receive confirmation message on attempt $attempt.", LOG_WARNING);
-                $mqtt = undef;  # Reset $mqtt on failure
+                $mqtt = undef;
             }
         }
         catch {
-            my $error_msg = $_;  # Capture the error message
+            my $error_msg = $_;
             log_to_journald("Error caught: $error_msg", LOG_ERR);
 
             if ($error_msg =~ /connect: Connection refused/) {
@@ -236,14 +249,15 @@ sub initialize_mqtt {
             } else {
                 log_to_journald("Failed to connect to MQTT on attempt $attempt: $error_msg", LOG_ERR);
             }
-            $mqtt = undef;  # Reset $mqtt on failure
-            sleep($retry_delay) if $attempt < $max_retries;  # Delay before retrying
+            $mqtt = undef;
+            sleep($retry_delay) if $attempt < $max_retries;
         };
     }
 
     # Check if the connection was successful
     if ($success) {
-        return $mqtt;  # Return MQTT object on success
+        # Return MQTT object on success
+        return $mqtt;
     } else {
         log_to_journald("Failed to connect to MQTT broker after $max_retries attempts. Exiting.", LOG_ERR);
         die "Failed to connect to MQTT broker after $max_retries attempts.";
@@ -280,7 +294,7 @@ sub start_watchdog {
 
                 # Wait for a confirmation message
                 for (my $wait = 0; $wait < 10; $wait++) {
-                    for (1..10) { $mqtt->tick(); sleep(0.1); }  # Check frequently
+                    for (1..10) { $mqtt->tick(); sleep(0.1); }
                     if ($heartbeat_received) {
                         $mqtt_success = 1;
                         last;
@@ -313,7 +327,8 @@ sub start_watchdog {
         }
     });
 
-    $watchdog_thread->detach();  # Detach the thread to allow it to run independently
+    # Detach the thread to allow it to run independently
+    $watchdog_thread->detach();
 
     # Cleanup hook for thread termination
     $SIG{'INT'} = sub { 
@@ -332,7 +347,7 @@ sub expand_template {
 
     if (!defined $ha_name || $ha_name eq '') {
         log_to_journald("Undefined or empty ha_name in template expansion", LOG_ERR);
-        return $template;  # Or handle it as appropriate, e.g., skipping this topic
+        return $template;
     }
 
     # Perform the substitution
@@ -348,8 +363,8 @@ sub expand_template {
 sub log_to_journald {
     my ($message, $level) = @_;
     
-    $level //= LOG_INFO;  # Default log level if not provided
-    return if $level > $log_level;  # Skip logging if below the current log level
+    $level //= LOG_INFO;
+    return if $level > $log_level;
 
     openlog('hass2rvc', 'cons,pid', LOG_USER);
     syslog($level, $message);
