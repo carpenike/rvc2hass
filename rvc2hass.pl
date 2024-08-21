@@ -378,6 +378,8 @@ sub publish_mqtt {
     my $friendly_name = $config->{friendly_name} // '';
     my $device_class = $config->{device_class} // 'switch';  # Default to 'switch' if not specified
     my $is_dimmable = $config->{dimmable} // 0;  # Default to non-dimmable if not specified
+    my $suggested_area = $config->{suggested_area};  # Retrieve the suggested area from the device config
+    my $manufacturer = $config->{manufacturer} // 'Entegra Coach';  # Default to Entegra Coach if not specified
 
     if ($ha_name eq '') {
         log_to_journald("ha_name is not defined or empty for this configuration.", LOG_ERR);
@@ -424,6 +426,10 @@ sub publish_mqtt {
             payload_on => $config->{payload_on} // 'ON',
             payload_off => $config->{payload_off} // 'OFF',
             state_value_template => $config->{state_value_template} // '{{ value_json.state }}',
+            device => {
+                suggested_area => $suggested_area,
+                manufacturer => $manufacturer,
+            }
         );
 
         # Additional properties for dimmable lights
