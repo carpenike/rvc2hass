@@ -35,6 +35,7 @@ my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
 my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it for watchdog interval
 my %sent_configs;  # Track sent configurations to avoid resending
 my %missing_configs;  # Track missing configs to avoid duplicate logging
+my %last_known_state; # Store the last known state for each device
 
 # Only log environment variables if debugging is enabled
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } grep { $_ !~ /PASSWORD|SECRET/ } keys %ENV), LOG_DEBUG) if $debug;
@@ -448,8 +449,11 @@ sub publish_mqtt {
         $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
     }
 
-    # Log the brightness value before state calculation if debugging is enabled
-    log_to_journald("Brightness value before state calculation: $calculated_brightness", LOG_DEBUG) if $debug;
+    # Only log if the state has changed
+    if (!exists $last_known_state{$ha_name} || $last_known_state{$ha_name} ne $calculated_state) {
+        log_to_journald("Final state to publish for device: $ha_name ($friendly_name): $calculated_state with brightness: $calculated_brightness", LOG_INFO);
+        $last_known_state{$ha_name} = $calculated_state;  # Update the last known state
+    }
 
     # Prepare the state message
     my %state_message = (
@@ -458,7 +462,6 @@ sub publish_mqtt {
     );
 
     # Publish the state message to the /state topic
-    log_to_journald("Final state to publish: $calculated_state with brightness: $calculated_brightness", LOG_INFO);
     my $state_json = encode_json(\%state_message);
     $mqtt->retain($state_topic, $state_json);
 
