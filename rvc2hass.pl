@@ -287,20 +287,22 @@ sub process_packet {
 sub handle_dimmable_light {
     my ($config, $result) = @_;
 
-    # Calculate brightness and command state based on data
-    my $brightness = $result->{'operating status (brightness)'} // 0;
-    my $command = ($brightness == 100) ? 'ON' : ($brightness > 0) ? 'ON' : 'OFF';
+    # Ensure $result is defined
+    if (defined $result) {
+        my $brightness = $result->{'operating status (brightness)'} // 'undefined';
+        log_to_journald("Raw data bytes: $result->{data}, Decoded brightness: $brightness", LOG_DEBUG);
 
-    log_to_journald("Handling dimmable light: $config->{ha_name}, brightness: $brightness, command: $command", LOG_DEBUG);
+        my $command = ($brightness == 100) ? 'ON' : ($brightness > 0) ? 'ON' : 'OFF';
+        log_to_journald("Calculated command: $command for device: $config->{ha_name}", LOG_DEBUG);
 
-    # Store calculated values in result hash for MQTT publishing
-    $result->{'calculated_brightness'} = $brightness;
-    $result->{'calculated_command'} = $command;
+        $result->{'calculated_brightness'} = $brightness;
+        $result->{'calculated_command'} = $command;
 
-    # Publish the updated result to MQTT
-    publish_mqtt($config, $result);
-
-    log_to_journald("Published state update for $config->{ha_name}: $command", LOG_INFO);
+        publish_mqtt($config, $result);
+        log_to_journald("Published state update for $config->{ha_name}: $command", LOG_INFO);
+    } else {
+        log_to_journald("No result data provided for light handling.", LOG_WARNING);
+    }
 }
 
 # Publish MQTT messages, handling configuration and state updates
