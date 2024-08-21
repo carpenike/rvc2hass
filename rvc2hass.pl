@@ -291,12 +291,9 @@ sub handle_dimmable_light {
     if (defined $result) {
         my $brightness = $result->{'operating status (brightness)'};
 
-        # Log the raw brightness value extracted from the result
-        log_to_journald("Extracted brightness value: " . ($brightness // 'undefined'), LOG_DEBUG);
-
         # Ensure brightness is defined and valid
         if (defined $brightness && $brightness =~ /^\d+$/) {
-            log_to_journald("Valid brightness value for $config->{ha_name}: $brightness", LOG_DEBUG);
+            log_to_journald("Decoded brightness for $config->{ha_name}: $brightness", LOG_DEBUG);
 
             # Calculate command based on brightness
             my $command = ($brightness > 0) ? 'ON' : 'OFF';
@@ -306,6 +303,9 @@ sub handle_dimmable_light {
             $result->{'calculated_brightness'} = $brightness;
             $result->{'calculated_command'} = $command;
 
+            # Additional log to ensure brightness is set correctly
+            log_to_journald("Brightness in handle_dimmable_light: " . ($result->{'calculated_brightness'} // 'undefined'), LOG_DEBUG);
+            
             # Publish the MQTT message
             publish_mqtt($config, $result);
             log_to_journald("Published state update for $config->{ha_name}: $command with brightness $brightness", LOG_INFO);
@@ -470,13 +470,6 @@ sub decode {
     $result{data} = $data;
     $result{name} = $decoder->{name} || "UNKNOWN-$dgn";
 
-    # log_to_journald("Decoder found for DGN $dgn: " . encode_json($decoder), LOG_DEBUG);
-
-    # Extract the brightness value safely
-    # my $brightness = $result{'operating status (brightness)'} // 'undefined';
-    
-    # log_to_journald("Raw data bytes: $data, Decoded brightness: $brightness", LOG_DEBUG);
-
     my @parameters;
     push(@parameters, @{$decoders->{$decoder->{alias}}->{parameters}}) if ($decoder->{alias});
     push(@parameters, @{$decoder->{parameters}}) if ($decoder->{parameters});
@@ -512,9 +505,10 @@ sub decode {
         }
     }
 
-    # log_to_journald("Decoded values for DGN $dgn: " . encode_json(\%result), LOG_DEBUG);
-
     $result{instance} = $result{instance} // undef;
+
+    # Additional log to ensure the result is being decoded correctly
+    log_to_journald("Decoded values for DGN $dgn: " . encode_json(\%result), LOG_DEBUG);
 
     return \%result;
 }
