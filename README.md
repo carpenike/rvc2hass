@@ -2,6 +2,10 @@
 
 The rvc2hass service is a Perl-based tool that bridges RV-C (Recreational Vehicle-CAN) data with Home Assistant, enabling you to monitor and control your RV devices via Home Assistant. This tool reads CAN bus data, decodes it, and publishes relevant information to an MQTT broker, making it available for Home Assistant to consume.
 
+## WARNING
+
+Use this tool at your own risk. This tool is unsupported and provided free of charge and without warranty. Making changes to an RV-C network outside of the vendor supplied tools brings with it inherent risk and may damage or destroy components in the system if not careful; IE -- do not attempt to send dimmer RV-C codes to a switch. The code is well documented, review the code to ensure you understand what it is doing prior to using the solution.
+
 ## Features
 
 - **CAN Bus Monitoring**: Captures and processes data from the RV-C network using `candump`.
