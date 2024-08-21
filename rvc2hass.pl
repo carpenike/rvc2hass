@@ -34,6 +34,9 @@ my $retry_delay = 5;  # Time to wait between retry attempts in seconds
 my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
 my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Convert microseconds to seconds and halve it for watchdog interval
 my %sent_configs;  # Track sent configurations to avoid resending
+my %missing_configs;  # Track missing configs to avoid duplicate logging
+my $missing_log_limit = 10;  # Log after every 10 missing configurations
+my $missing_count = 0;  # Counter for missing logs
 
 # Only log environment variables if debugging is enabled
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } grep { $_ !~ /PASSWORD|SECRET/ } keys %ENV), LOG_DEBUG) if $debug;
@@ -244,6 +247,9 @@ sub process_can_bus_data {
         process_packet(@parts);
     }
     close $can_file;
+
+    # Log any missing configurations accumulated during processing
+    log_missing_configs();
 }
 
 # Process a single CAN bus packet, decoding and publishing to MQTT as needed
@@ -289,8 +295,7 @@ sub process_packet {
                 }
             }
         } else {
-            log_to_journald("No matching config found for DGN $dgn and instance $instance", LOG_WARNING);
-            log_to_temp_file($dgn);
+            log_missing_config($dgn, $instance);
         }
     } else {
         log_to_journald("No data to publish for DGN $dgn", LOG_DEBUG) if $debug;
@@ -642,33 +647,32 @@ sub tempC2F {
     return int((($tempC * 9 / 5) + 32) * 10) / 10;
 }
 
-# Log undefined DGN entries to a temporary file
-sub log_to_temp_file {
-    my ($dgn) = @_;
+# Track and log missing configuration entries
+sub log_missing_config {
+    my ($dgn, $instance) = @_;
+    my $key = "$dgn-$instance";
 
-    if (-e $undefined_dgns_file) {
-        open my $fh, '<', $undefined_dgns_file or do {
-            log_to_journald("Failed to open log file for reading undefined DGN $dgn: $!", LOG_ERR);
-            return;
-        };
-        while (my $line = <$fh>) {
-            chomp $line;
-            if ($line eq $dgn) {
-                close $fh;
-                return;
-            }
+    unless (exists $missing_configs{$key}) {
+        $missing_configs{$key} = 1;
+        $missing_count++;
+    }
+
+    if ($missing_count >= $missing_log_limit) {
+        log_missing_configs();
+        $missing_count = 0;
+        }
         }
         close $fh;
     }
+        close $fh;
+}
 
-    open my $fh, '>>', $undefined_dgns_file or do {
-        log_to_journald("Failed to open log file for appending undefined DGN $dgn: $!", LOG_ERR);
-        return;
-    };
-    print $fh "$dgn\n";
-    close $fh;
-
-    log_to_journald("Logged undefined DGN $dgn to temporary file: $undefined_dgns_file", LOG_INFO);
+# Log all missing configurations
+sub log_missing_configs {
+    if (%missing_configs) {
+        log_to_journald("No matching config found for the following DGN and instances: " . join(", ", keys %missing_configs), LOG_WARNING);
+        %missing_configs = ();  # Clear after logging
+    }
 }
 
 # Log messages to journald
