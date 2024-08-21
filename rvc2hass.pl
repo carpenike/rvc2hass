@@ -293,7 +293,7 @@ sub handle_dimmable_light {
 
         # Ensure brightness is defined and valid
         if (defined $brightness && $brightness =~ /^\d+(\.\d+)?$/) {
-            log_to_journald("Decoded brightness for $config->{ha_name}: $brightness", LOG_DEBUG);
+            log_to_journald("Decoded brightness for $config->{ha_name}: $brightness (Type: " . ref($brightness) . ")", LOG_DEBUG);
 
             # Calculate command based on brightness
             my $command = ($brightness > 0) ? 'ON' : 'OFF';
@@ -303,7 +303,7 @@ sub handle_dimmable_light {
             $result->{'calculated_brightness'} = $brightness;
             $result->{'calculated_command'} = $command;
 
-            # Log the state of the result before passing it to publish_mqtt
+            # Log the entire result hash before publishing to MQTT
             log_to_journald("Result before publish_mqtt: " . encode_json($result), LOG_DEBUG);
 
             # Publish the MQTT message
