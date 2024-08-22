@@ -15,6 +15,7 @@ use File::Basename;
 use Sys::Syslog qw(:standard :macros);
 use Getopt::Long;
 use POSIX qw(strftime);
+use Math::BigInt;  # Added to handle large hexadecimal numbers
 
 # Command-line options
 my $debug = 0;
@@ -260,9 +261,14 @@ sub process_packet {
     return unless @parts >= 5;  # Ensure there are enough parts to process
 
     my $can_id_hex = $parts[2];
-    my $binCanId = sprintf("%029b", hex($can_id_hex));  # Ensure leading zeros for CAN ID
+    
+    # Handle large hexadecimal numbers using Math::BigInt
+    my $binCanId = Math::BigInt->from_hex($can_id_hex)->as_bin();  # Convert hex CAN ID to binary using Math::BigInt
+    $binCanId = substr($binCanId, 2); # Remove '0b' prefix
+    $binCanId = ('0' x (29 - length($binCanId))) . $binCanId;  # Pad with leading zeros to ensure 29 bits
+
     my $dgn_bin = substr($binCanId, 4, 17);  # Extract DGN from CAN ID
-    my $dgn = sprintf("%05X", oct("0b$dgn_bin"));  # Convert binary DGN to hex
+    my $dgn = Math::BigInt->new("0b$dgn_bin")->as_hex();  # Convert binary DGN to hex using Math::BigInt
 
     log_to_journald("DGN: $dgn, Data: @parts[4..$#parts]", LOG_DEBUG) if $debug;
 
@@ -534,11 +540,11 @@ sub decode {
         my $values = $parameter->{values};
 
         my $bytes = get_bytes($data, $parameter->{byte});
-        my $value = hex($bytes);
+        my $value = Math::BigInt->new($bytes);  # Use Math::BigInt to handle large values
 
         if (defined $parameter->{bit}) {
             my $bits = get_bits($bytes, $parameter->{bit});
-            $value = oct('0b' . $bits) if defined $bits;
+            $value = Math::BigInt->new('0b' . $bits) if defined $bits;
         }
 
         if (defined $unit) {
