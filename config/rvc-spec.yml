@@ -19,6 +19,9 @@
 # a name from lower case to upper case, can have an impact on tools
 # that have been written to use the mqtt output generated from this
 # spec file.
+
+# Found here: https://github.com/linuxkidd/coachproxy-os/blob/65832586d6b64f4dc4cb2df8e53159081e690099/roles/coachproxy/files/etc/rvc-spec.yml
+
 API_VERSION: 1
 
 17F00:
