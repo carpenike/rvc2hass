@@ -132,15 +132,26 @@ sub process_mqtt_command {
 
     my $command = 0;
     my $brightness = 125;  # Default brightness
+    my $action = '';  # Descriptive action for logging
 
     # Determine command based on message type
     if ($command_type eq 'state') {
-        $command = ($message eq 'ON') ? 2 : 3;  # ON -> command 2, OFF -> command 3
-        $brightness = 0 if $message eq 'OFF';  # Set brightness to 0 instead of an empty string
+        if ($message eq 'ON') {
+            $command = 2;  # Command for turning on
+            $action = "Turning ON";
+        } else {
+            $command = 3;  # Command for turning off
+            $brightness = 0;
+            $action = "Turning OFF";
+        }
     } elsif ($command_type eq 'brightness') {
         $brightness = defined($message) && $message ne '' ? $message : 0;  # Default to 0 if undefined
         $command = ($brightness > 0) ? 0 : 3;  # If brightness > 0, set level, else OFF
+        $action = "Setting brightness to $brightness";
     }
+
+    # Log the action being performed
+    log_to_journald("$action for $config->{ha_name}", LOG_INFO);
 
     # Convert brightness percentage to scale
     $brightness = int($brightness * 2) if $brightness ne '';
@@ -160,6 +171,9 @@ sub process_mqtt_command {
     # Send the main CAN bus command
     send_can_command($can_interface, $hexCanId, $hexData);
 
+    # Log the actual CAN bus command being sent
+    log_to_journald("CAN bus command: cansend $can_interface $hexCanId#$hexData", LOG_INFO);
+
     # If $command is 0 or 17, additional commands would be sent
     if ($command == 0 || $command == 17) {
         # Prepare and send the first additional command
@@ -169,10 +183,16 @@ sub process_mqtt_command {
         $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness, $command, $duration);
         send_can_command($can_interface, $hexCanId, $hexData);
 
+        # Log the additional CAN bus command being sent
+        log_to_journald("Additional CAN bus command: cansend $can_interface $hexCanId#$hexData", LOG_INFO);
+
         # Prepare and send the second additional command
         $command = 4;
         $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness, $command, $duration);
         send_can_command($can_interface, $hexCanId, $hexData);
+
+        # Log the additional CAN bus command being sent
+        log_to_journald("Additional CAN bus command: cansend $can_interface $hexCanId#$hexData", LOG_INFO);
     }
 }
 
