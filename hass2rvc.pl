@@ -140,7 +140,7 @@ sub process_mqtt_command {
             $command = 0;  # Set level command to turn on with the current brightness
         } elsif ($message eq 'OFF') {
             $command = 3;  # OFF command
-            $brightness = '';  # No brightness value when turning off
+            $brightness = undef;  # No brightness value when turning off
         }
     } elsif ($command_type eq 'brightness') {
         # Handle brightness setting without altering the ON/OFF state
@@ -149,8 +149,8 @@ sub process_mqtt_command {
         $config->{last_brightness} = $brightness;  # Save brightness for subsequent ON commands
     }
 
-    # Convert brightness percentage to scale
-    $brightness = int($brightness * 2) if defined($brightness) && $brightness ne '';
+    # Convert brightness percentage to scale if it's defined
+    $brightness = defined($brightness) ? int($brightness * 2) : 0xFF;
 
     # Construct CAN bus command
     my $prio = 6;
