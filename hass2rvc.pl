@@ -139,15 +139,26 @@ sub process_mqtt_command {
         if ($message eq 'ON') {
             $command = 2;  # Command for turning on
             $action = "Turning ON";
-        } else {
+        } elsif ($message eq 'OFF') {
             $command = 3;  # Command for turning off
             $brightness = 0;
             $action = "Turning OFF";
+        } else {
+            log_to_journald("Unexpected state command: $message", LOG_WARNING);
+            return;
         }
     } elsif ($command_type eq 'brightness') {
-        $brightness = defined($message) && $message ne '' ? $message : 0;  # Default to 0 if undefined
-        $command = ($brightness > 0) ? 0 : 3;  # If brightness > 0, set level, else OFF
-        $action = "Setting brightness to $brightness";
+        if ($message =~ /^\d+$/) {  # Check if the message is a valid number
+            $brightness = int($message);
+            $command = ($brightness > 0) ? 0 : 3;  # If brightness > 0, set level, else OFF
+            $action = "Setting brightness to $brightness";
+        } else {
+            log_to_journald("Invalid brightness value: $message", LOG_WARNING);
+            return;
+        }
+    } else {
+        log_to_journald("Unknown command type: $command_type", LOG_WARNING);
+        return;
     }
 
     # Log the action being performed
