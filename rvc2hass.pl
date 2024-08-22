@@ -15,7 +15,7 @@ use File::Basename;
 use Sys::Syslog qw(:standard :macros);
 use Getopt::Long;
 use POSIX qw(strftime);
-use Math::BigInt;  # Added to handle large hexadecimal numbers
+use Math::BigInt;  # Still use Math::BigInt for large numbers
 
 # Command-line options
 my $debug = 0;
@@ -261,14 +261,13 @@ sub process_packet {
     return unless @parts >= 5;  # Ensure there are enough parts to process
 
     my $can_id_hex = $parts[2];
-    
-    # Handle large hexadecimal numbers using Math::BigInt
-    my $binCanId = Math::BigInt->from_hex($can_id_hex)->as_bin();  # Convert hex CAN ID to binary using Math::BigInt
-    $binCanId = substr($binCanId, 2); # Remove '0b' prefix
-    $binCanId = ('0' x (29 - length($binCanId))) . $binCanId;  # Pad with leading zeros to ensure 29 bits
+
+    # Reverting back to simpler handling for CAN ID, but use Math::BigInt only when needed
+    my $can_id = Math::BigInt->from_hex($can_id_hex)->bstr();  # Convert to string for safer handling
+    my $binCanId = sprintf("%029b", $can_id);  # Ensure leading zeros for CAN ID
 
     my $dgn_bin = substr($binCanId, 4, 17);  # Extract DGN from CAN ID
-    my $dgn = Math::BigInt->new("0b$dgn_bin")->as_hex();  # Convert binary DGN to hex using Math::BigInt
+    my $dgn = sprintf("%05X", oct("0b$dgn_bin"));  # Convert binary DGN to hex
 
     log_to_journald("DGN: $dgn, Data: @parts[4..$#parts]", LOG_DEBUG) if $debug;
 
