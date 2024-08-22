@@ -257,7 +257,7 @@ sub process_can_bus_data {
     close $can_file;
 }
 
-## Process a single CAN bus packet, decoding and publishing to MQTT as needed
+# Process a single CAN bus packet, decoding and publishing to MQTT as needed
 sub process_packet {
     my @parts = @_;
 
@@ -279,8 +279,15 @@ sub process_packet {
 
     if ($result) {
         log_to_journald("Decoded result: " . $json->encode($result), LOG_DEBUG) if $debug;
-        my $instance = $result->{'instance'} // 'default';  # Default to 'default' if instance not found
 
+        # Handle missing or invalid instance
+        my $instance = $result->{'instance'};
+        if (!defined $instance || $instance =~ /NaN/i) {
+            log_to_journald("Invalid or missing instance for DGN $dgn, defaulting to 'default'", LOG_WARNING);
+            $instance = 'default';  # Set to a default value
+        }
+
+        # Check for configured devices or publish unmanaged data
         if (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{$instance}) {
             my $configs = $lookup->{$dgn}->{$instance};
             foreach my $config (@$configs) {
@@ -324,11 +331,14 @@ sub process_packet {
 sub publish_unmanaged_device {
     my ($dgn, $instance, $result) = @_;
 
+    # Ensure instance is valid and not NaN
+    $instance = defined($instance) && $instance !~ /NaN/i ? $instance : 'default';
+
     my $topic = "rvc2hass/$dgn/$instance";
     my $message = $json->encode($result);
 
     $mqtt->publish($topic, $message);
-    log_to_journald("Published unmanaged device data to $topic", LOG_DEBUG) if $debug;
+    log_to_journald("Published unmanaged device data to $topic", LOG_INFO);
 }
 
 # Handle dimmable light packets, calculating brightness and command state
