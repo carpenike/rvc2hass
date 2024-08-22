@@ -538,13 +538,14 @@ sub expand_template {
     return $template;
 }
 
-# Decode the DGN and data bytes to extract relevant parameters and values
+# Enhanced logging in decode subroutine
 sub decode {
     my ($dgn, $data) = @_;
     my %result;
 
     # Retrieve the decoder configuration for the given DGN
     my $decoder = $decoders->{$dgn};
+
     unless ($decoder) {
         log_to_journald("No decoder found for DGN $dgn", LOG_DEBUG) if $debug;
         return;
@@ -585,8 +586,8 @@ sub decode {
 
         # Check for NaN or invalid data patterns (e.g., `FF`)
         if (!defined($value) || $value eq 'NaN' || $bytes =~ /^F+$/) {
-            log_to_journald("Potential NaN or invalid data detected for parameter '$name'", LOG_WARNING);
-            $value = 'NaN';  # Handle invalid data as NaN
+            log_to_journald("Potential NaN or invalid data detected for parameter '$name': raw bytes = $bytes", LOG_WARNING);
+            $value = 'NaN';
         }
 
         # Apply unit conversion if a unit is defined
@@ -603,7 +604,8 @@ sub decode {
         # Resolve to human-readable value if a mapping exists
         if ($values && defined $values->{$value}) {
             $result{"$name definition"} = $values->{$value};
-            $value = $values->{$value};  # Replace numeric value with its human-readable equivalent
+            # Replace numeric value with its human-readable equivalent
+            $value = $values->{$value};
         }
 
         # Store the final decoded value in the result hash
