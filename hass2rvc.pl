@@ -130,32 +130,27 @@ sub process_mqtt_command {
     # Ensure instance is numeric or set to a default value (like 0)
     $instance = defined($instance) && $instance ne '' ? $instance : 0;
 
-    my $command = 0;
-    my $brightness = 125;  # Default brightness
+    my $command;
+    my $brightness;
 
     if ($command_type eq 'state') {
         if ($message eq 'ON') {
-            # Skip sending an ON command if brightness has been set already
-            if (defined $config->{last_brightness}) {
-                $brightness = $config->{last_brightness};
-                $command = 0;  # Just set the level without sending an ON command
-            } else {
-                $command = 2;  # ON command with default brightness
-            }
+            # Use the last brightness value if available, otherwise use default
+            $brightness = $config->{last_brightness} // 125;
+            $command = 0;  # Set level command to turn on with the current brightness
         } elsif ($message eq 'OFF') {
-            # Handle turning off the light
-            $command = 3;
-            $brightness = '';
+            $command = 3;  # OFF command
+            $brightness = '';  # No brightness value when turning off
         }
     } elsif ($command_type eq 'brightness') {
-        # Handle brightness setting
+        # Handle brightness setting without altering the ON/OFF state
         $brightness = $message;
         $command = 0;  # Set level command
         $config->{last_brightness} = $brightness;  # Save brightness for subsequent ON commands
     }
 
     # Convert brightness percentage to scale
-    $brightness = int($brightness * 2) if $brightness ne '';
+    $brightness = int($brightness * 2) if defined($brightness) && $brightness ne '';
 
     # Construct CAN bus command
     my $prio = 6;
@@ -163,7 +158,6 @@ sub process_mqtt_command {
     my $dgnlo = 'DB';
     my $srcAD = 99;
     my $duration = 255;
-    my $bypass = 0;
 
     my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
     my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness, $command, $duration);
@@ -174,8 +168,8 @@ sub process_mqtt_command {
         log_to_journald("Setting brightness to $message for $config->{ha_name}", LOG_INFO);
         send_can_command($can_interface, $hexCanId, $hexData);
         finalize_brightness_setting($instance, $config->{ha_name});
-    } elsif ($command_type eq 'state' && $message eq 'ON' && !defined $config->{last_brightness}) {
-        log_to_journald("Turning ON for $config->{ha_name}", LOG_INFO);
+    } elsif ($command_type eq 'state' && $message eq 'ON') {
+        log_to_journald("Turning ON for $config->{ha_name} with brightness $brightness", LOG_INFO);
         send_can_command($can_interface, $hexCanId, $hexData);
     } elsif ($command_type eq 'state' && $message eq 'OFF') {
         log_to_journald("Turning OFF for $config->{ha_name}", LOG_INFO);
@@ -207,8 +201,6 @@ sub finalize_brightness_setting {
     $command = 4;
     $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, 0, $command, $duration);
     send_can_command($can_interface, $hexCanId, $hexData);
-
-    # Additional logic to handle any further finalization if necessary
 }
 
 # Subroutine to send CAN bus command
