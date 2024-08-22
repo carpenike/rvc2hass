@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use File::Temp qw(tempdir);
 use YAML::XS qw(LoadFile);
-use JSON qw(encode_json decode_json);
+use JSON qw();  # Load JSON without importing functions directly
 use Net::MQTT::Simple;
 use Try::Tiny;
 use IO::Socket::UNIX;
@@ -16,6 +16,9 @@ use Sys::Syslog qw(:standard :macros);
 use Getopt::Long;
 use POSIX qw(strftime);
 use Math::BigInt;  # Still use Math::BigInt for large numbers
+
+# Create a JSON object with the allow_blessed and convert_blessed options enabled
+my $json = JSON->new->allow_blessed(1)->convert_blessed(1);
 
 # Command-line options
 my $debug = 0;
@@ -57,7 +60,7 @@ my $decoders = LoadFile("$script_dir/config/rvc-spec.yml");
 my $lookup = LoadFile("$script_dir/config/coach-devices.yml");
 
 # Log the loaded YAML structure if debugging is enabled
-log_to_journald("Loaded YAML structure: " . Dumper($lookup), LOG_DEBUG) if $debug;
+log_to_journald("Loaded YAML structure: " . $json->encode($lookup), LOG_DEBUG) if $debug;
 
 # Create a temporary directory for undefined DGNs
 my $temp_dir = tempdir(CLEANUP => 1);
@@ -275,7 +278,7 @@ sub process_packet {
     my $result = decode($dgn, $data_bytes);
 
     if ($result) {
-        log_to_journald("Decoded result: " . encode_json($result), LOG_DEBUG) if $debug;
+        log_to_journald("Decoded result: " . $json->encode($result), LOG_DEBUG) if $debug;
         my $instance = $result->{'instance'} // 'default';  # Default to 'default' if instance not found
 
         if (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{$instance}) {
@@ -327,7 +330,7 @@ sub handle_dimmable_light {
     }
     
     # Log incoming result data if debugging is enabled
-    log_to_journald("Received result in handle_dimmable_light: " . encode_json($result), LOG_DEBUG) if $debug;
+    log_to_journald("Received result in handle_dimmable_light: " . $json->encode($result), LOG_DEBUG) if $debug;
     
     # Extract brightness from result
     my $brightness = $result->{'operating status (brightness)'};
@@ -362,7 +365,7 @@ sub handle_dimmable_light {
     }
     
     # Log result before publishing if debugging is enabled
-    log_to_journald("Result before publishing: " . encode_json($result), LOG_DEBUG) if $debug;
+    log_to_journald("Result before publishing: " . $json->encode($result), LOG_DEBUG) if $debug;
     
     # Publish MQTT message
     publish_mqtt($config, $result);
@@ -449,7 +452,7 @@ sub publish_mqtt {
         }
 
         # Publish the /config message
-        my $config_json = encode_json(\%config_message);
+        my $config_json = $json->encode(\%config_message);
         $mqtt->retain($config_topic, $config_json);
 
         log_to_journald("Published /config for $ha_name to $config_topic", LOG_INFO);
@@ -481,7 +484,7 @@ sub publish_mqtt {
     $state_message{brightness} = $calculated_brightness if $is_dimmable;
 
     # Publish the state message to the /state topic
-    my $state_json = encode_json(\%state_message);
+    my $state_json = $json->encode(\%state_message);
     $mqtt->retain($state_topic, $state_json);
 
     # Log changes only if the state or brightness has changed
