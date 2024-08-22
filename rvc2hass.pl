@@ -586,7 +586,7 @@ sub decode {
 
         # Check for NaN or invalid data patterns (e.g., `FF`)
         if (!defined($value) || $value eq 'NaN' || $bytes =~ /^F+$/) {
-            log_to_journald("Potential NaN or invalid data detected for parameter '$name': raw bytes = $bytes", LOG_WARNING);
+            log_to_journald("Potential NaN or invalid data detected for parameter '$name': raw bytes = $bytes", LOG_DEBUG) if $debug;
             $value = 'NaN';
         }
 
@@ -597,7 +597,7 @@ sub decode {
 
             # Check again for NaN after conversion
             if ($value eq 'NaN') {
-                log_to_journald("NaN detected after conversion for parameter '$name'", LOG_WARNING);
+                log_to_journald("NaN detected after conversion for parameter '$name'", LOG_DEBUG) if $debug;
             }
         }
 
