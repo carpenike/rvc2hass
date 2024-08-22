@@ -315,7 +315,7 @@ sub start_watchdog {
         my ($topic, $message) = @_;
         log_to_journald("Received heartbeat on $heartbeat_topic: $message", LOG_DEBUG) if $debug;
         if ($message eq "Heartbeat message from watchdog") {
-            $heartbeat_received = 1;
+            $heartbeat_received = 1;  # Set the flag when the correct heartbeat is received
         }
     });
 
@@ -325,37 +325,40 @@ sub start_watchdog {
             my $mqtt_success = 0;
 
             try {
-                # Reset the heartbeat_received flag
+                # Reset the heartbeat_received flag for each watchdog loop iteration
                 $heartbeat_received = 0;
 
                 # Publish a heartbeat message to MQTT
                 $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
                 log_to_journald("Published heartbeat message to MQTT", LOG_DEBUG) if $debug;
 
-                # Wait for a confirmation message
-                for (my $wait = 0; $wait < 10; $wait++) {
-                    for (1..10) { $mqtt->tick(); sleep(0.1); }
-                    if ($heartbeat_received) {
+                # Wait for a confirmation message, checking periodically
+                for (my $wait = 0; $wait < 5; $wait++) {  # Reduced the loop for quicker feedback
+                    for (1..10) { 
+                        $mqtt->tick(); 
+                        sleep(0.1);  # Shorter sleep, making it more responsive
+                    }
+                    if ($heartbeat_received) {  # If heartbeat is received, break the loop
                         $mqtt_success = 1;
                         last;
                     }
                 }
 
+                # If no heartbeat was received, log an error and exit
                 if (!$mqtt_success) {
                     log_to_journald("Failed to receive heartbeat confirmation. Exiting.", LOG_ERR);
                     die "Error in watchdog loop: Failed to receive heartbeat confirmation. Exiting.";
                 }
 
             } catch {
+                # Catch and log any errors that occur in the watchdog loop
                 log_to_journald("Error in watchdog loop: $_. Exiting.", LOG_ERR);
                 die "Error in watchdog loop: $_. Exiting.";
             };
 
-            # Notify systemd that the process is still alive
+            # Notify systemd that the process is still alive if MQTT was successful
             if ($mqtt_success) {
-                if ($debug) {
-                    log_to_journald("Notifying systemd watchdog.", LOG_DEBUG);
-                }
+                log_to_journald("Notifying systemd watchdog.", LOG_DEBUG) if $debug;
                 if (systemd_notify("WATCHDOG=1")) {
                     log_to_journald("Systemd watchdog notified successfully.", LOG_INFO) if $debug;
                 } else {
@@ -363,7 +366,7 @@ sub start_watchdog {
                 }
             }
 
-            sleep($watchdog_interval);
+            sleep($watchdog_interval);  # Sleep for the specified interval before next loop
         }
     });
 
