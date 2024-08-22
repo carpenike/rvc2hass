@@ -257,7 +257,7 @@ sub process_can_bus_data {
     close $can_file;
 }
 
-# Process a single CAN bus packet, decoding and publishing to MQTT as needed
+## Process a single CAN bus packet, decoding and publishing to MQTT as needed
 sub process_packet {
     my @parts = @_;
 
@@ -265,7 +265,7 @@ sub process_packet {
 
     my $can_id_hex = $parts[2];
 
-    # Reverting back to simpler handling for CAN ID, but use Math::BigInt only when needed
+    # Handling for CAN ID, but use Math::BigInt only when needed
     my $can_id = Math::BigInt->from_hex($can_id_hex)->bstr();  # Convert to string for safer handling
     my $binCanId = sprintf("%029b", $can_id);  # Ensure leading zeros for CAN ID
 
@@ -313,10 +313,22 @@ sub process_packet {
             }
         } else {
             log_missing_config($dgn, $instance);
+            publish_unmanaged_device($dgn, $instance, $result);  # Publish unmanaged devices
         }
     } else {
         log_to_journald("No data to publish for DGN $dgn", LOG_DEBUG) if $debug;
     }
+}
+
+# Publish data for unmanaged devices to rvc2hass/# as JSON
+sub publish_unmanaged_device {
+    my ($dgn, $instance, $result) = @_;
+
+    my $topic = "rvc2hass/$dgn/$instance";
+    my $message = $json->encode($result);
+
+    $mqtt->publish($topic, $message);
+    log_to_journald("Published unmanaged device data to $topic", LOG_INFO);
 }
 
 # Handle dimmable light packets, calculating brightness and command state
