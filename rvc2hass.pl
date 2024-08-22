@@ -328,7 +328,7 @@ sub publish_unmanaged_device {
     my $message = $json->encode($result);
 
     $mqtt->publish($topic, $message);
-    log_to_journald("Published unmanaged device data to $topic", LOG_INFO);
+    log_to_journald("Published unmanaged device data to $topic", LOG_DEBUG) if $debug;
 }
 
 # Handle dimmable light packets, calculating brightness and command state
