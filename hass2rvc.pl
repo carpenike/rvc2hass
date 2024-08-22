@@ -135,16 +135,18 @@ sub process_mqtt_command {
 
     # Determine command based on message type
     if ($command_type eq 'state') {
-        $command = ($message eq 'ON') ? 2 : 3;  # ON -> command 2, OFF -> command 3
-        $brightness = '' if $message eq 'OFF';
-    } elsif ($command_type eq 'brightness') {
-        $brightness = $message;
-        if ($brightness > 0) {
-            $command = 0;  # Set level
-        } else {
-            # Avoid sending a separate ON command right after setting the brightness
-            return;
+        if ($message eq 'ON') {
+            # If the light is being turned ON, use the previous brightness value or a default value
+            $command = 2;
+        } elsif ($message eq 'OFF') {
+            # If the light is being turned OFF, reset the brightness
+            $command = 3;
+            $brightness = '';
         }
+    } elsif ($command_type eq 'brightness') {
+        # Handle brightness setting
+        $brightness = $message;
+        $command = 0;  # Set level command
     }
 
     # Convert brightness percentage to scale
@@ -162,20 +164,17 @@ sub process_mqtt_command {
     my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness, $command, $duration);
     my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
 
+    # Log actions
     if ($command_type eq 'brightness') {
-        # Log setting brightness
         log_to_journald("Setting brightness to $message for $config->{ha_name}", LOG_INFO);
-    } else {
-        # Log turning on/off
-        log_to_journald(($message eq 'ON' ? "Turning ON" : "Turning OFF") . " for $config->{ha_name}", LOG_INFO);
-    }
-
-    # Send the main CAN bus command
-    send_can_command($can_interface, $hexCanId, $hexData);
-
-    if ($command == 0) {
-        # Finalize the brightness setting with additional commands if necessary
+        send_can_command($can_interface, $hexCanId, $hexData);
         finalize_brightness_setting($instance, $config->{ha_name});
+    } elsif ($command_type eq 'state' && $message eq 'ON') {
+        log_to_journald("Turning ON for $config->{ha_name}", LOG_INFO);
+        send_can_command($can_interface, $hexCanId, $hexData);
+    } elsif ($command_type eq 'state' && $message eq 'OFF') {
+        log_to_journald("Turning OFF for $config->{ha_name}", LOG_INFO);
+        send_can_command($can_interface, $hexCanId, $hexData);
     }
 }
 
@@ -185,7 +184,7 @@ sub finalize_brightness_setting {
 
     log_to_journald("Finalizing brightness setting for $ha_name", LOG_INFO);
 
-    my $command = 21;
+    my $command = 21;  # Command for finalizing brightness
     my $brightness = 0;
     my $duration = 0;
     my $prio = 6;
@@ -199,7 +198,7 @@ sub finalize_brightness_setting {
     my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness, $command, $duration);
     send_can_command($can_interface, $hexCanId, $hexData);
 
-    $command = 4;
+    $command = 4;  # Additional command for finalizing
     $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness, $command, $duration);
     send_can_command($can_interface, $hexCanId, $hexData);
 }
