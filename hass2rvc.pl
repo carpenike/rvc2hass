@@ -168,7 +168,7 @@ sub process_mqtt_command {
     if ($command_type eq 'brightness') {
         log_to_journald("Setting brightness to $message for $config->{ha_name}", LOG_INFO);
         send_can_command($can_interface, $hexCanId, $hexData);
-        finalize_brightness_setting($instance, $config->{ha_name});
+        finalize_brightness_setting($instance, $config->{ha_name}, $brightness);
     } elsif ($command_type eq 'state' && $message eq 'ON') {
         log_to_journald("Turning ON for $config->{ha_name}", LOG_INFO);
         send_can_command($can_interface, $hexCanId, $hexData);
@@ -180,12 +180,11 @@ sub process_mqtt_command {
 
 # Subroutine to finalize brightness setting
 sub finalize_brightness_setting {
-    my ($instance, $ha_name) = @_;
+    my ($instance, $ha_name, $brightness) = @_;
 
     log_to_journald("Finalizing brightness setting for $ha_name", LOG_INFO);
 
-    my $command = 21;  # Command for finalizing brightness
-    my $brightness = 0;
+    my $command = 21;  # Command for ramp up/down
     my $duration = 0;
     my $prio = 6;
     my $dgnhi = '1FE';
@@ -195,12 +194,16 @@ sub finalize_brightness_setting {
     my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
     my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
 
-    my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness, $command, $duration);
+    # Ramp Up/Down Command
+    my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, 0, $command, $duration);
     send_can_command($can_interface, $hexCanId, $hexData);
 
-    $command = 4;  # Additional command for finalizing
-    $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness, $command, $duration);
+    # Stop Command
+    $command = 4;
+    $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, 0, $command, $duration);
     send_can_command($can_interface, $hexCanId, $hexData);
+
+    # Additional logic to handle any further finalization if necessary
 }
 
 # Subroutine to send CAN bus command
