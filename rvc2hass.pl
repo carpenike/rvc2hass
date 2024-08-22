@@ -543,56 +543,75 @@ sub decode {
     my ($dgn, $data) = @_;
     my %result;
 
+    # Retrieve the decoder configuration for the given DGN
     my $decoder = $decoders->{$dgn};
     unless ($decoder) {
         log_to_journald("No decoder found for DGN $dgn", LOG_DEBUG) if $debug;
         return;
     }
 
+    # Initialize the result with basic information
     $result{dgn} = $dgn;
     $result{data} = $data;
     $result{name} = $decoder->{name} || "UNKNOWN-$dgn";
 
+    # Gather parameters from both the decoder and any alias it may reference
     my @parameters;
     push(@parameters, @{$decoders->{$decoder->{alias}}->{parameters}}) if ($decoder->{alias});
     push(@parameters, @{$decoder->{parameters}}) if ($decoder->{parameters});
 
+    # Process each parameter
     foreach my $parameter (@parameters) {
         my $name = $parameter->{name};
         my $type = $parameter->{type} // 'uint';
         my $unit = $parameter->{unit};
         my $values = $parameter->{values};
 
+        # Extract bytes corresponding to the parameter
         my $bytes = get_bytes($data, $parameter->{byte});
         log_to_journald("Processing parameter '$name' with bytes: $bytes", LOG_DEBUG) if $debug;
 
         my $value;
+
+        # Handle bit-based parameters
         if ($type =~ /^bit/) {
-            # Handle bit-based types, e.g., bit2
             my $bitrange = $parameter->{bit};
             my $bits = get_bits($bytes, $bitrange);
             $value = Math::BigInt->new('0b' . $bits)->bstr() if defined $bits;
         } else {
-            # Handle full-byte values
+            # Handle full-byte parameters
             $value = Math::BigInt->new($bytes)->bstr();
         }
 
-        # Convert unit if applicable
+        # Check for NaN or invalid data patterns (e.g., `FF`)
+        if (!defined($value) || $value eq 'NaN' || $bytes =~ /^F+$/) {
+            log_to_journald("Potential NaN or invalid data detected for parameter '$name'", LOG_WARNING);
+            $value = 'NaN';  # Handle invalid data as NaN
+        }
+
+        # Apply unit conversion if a unit is defined
         if (defined $unit) {
             $value = convert_unit($value, $unit, $type);
+            log_to_journald("Converted value for '$name' with unit: $unit -> $value", LOG_DEBUG) if $debug;
+
+            # Check again for NaN after conversion
+            if ($value eq 'NaN') {
+                log_to_journald("NaN detected after conversion for parameter '$name'", LOG_WARNING);
+            }
         }
 
-        # Resolve to human-readable value if applicable
+        # Resolve to human-readable value if a mapping exists
         if ($values && defined $values->{$value}) {
             $result{"$name definition"} = $values->{$value};
-            $value = $values->{$value};  # Replace the numeric value with its human-readable counterpart
+            $value = $values->{$value};  # Replace numeric value with its human-readable equivalent
         }
 
+        # Store the final decoded value in the result hash
         $result{$name} = $value // 'undefined';
-
         log_to_journald("Decoded '$name': $result{$name}", LOG_DEBUG) if $debug;
     }
 
+    # Ensure the instance value is handled correctly
     $result{instance} = $result{instance} // 'undefined';
 
     return \%result;
