@@ -136,9 +136,9 @@ sub process_mqtt_command {
     # Determine command based on message type
     if ($command_type eq 'state') {
         $command = ($message eq 'ON') ? 2 : 3;  # ON -> command 2, OFF -> command 3
-        $brightness = '' if $message eq 'OFF';
+        $brightness = 0 if $message eq 'OFF';  # Set brightness to 0 instead of an empty string
     } elsif ($command_type eq 'brightness') {
-        $brightness = $message;
+        $brightness = defined($message) && $message ne '' ? $message : 0;  # Default to 0 if undefined
         $command = ($brightness > 0) ? 0 : 3;  # If brightness > 0, set level, else OFF
     }
 
