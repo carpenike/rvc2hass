@@ -564,36 +564,38 @@ sub decode {
         my $values = $parameter->{values};
 
         my $bytes = get_bytes($data, $parameter->{byte});
-        my $value = Math::BigInt->new($bytes);  # Use Math::BigInt to handle large values
+        log_to_journald("Processing parameter '$name' with bytes: $bytes", LOG_DEBUG) if $debug;
 
-        if (defined $parameter->{bit}) {
-            my $bits = get_bits($bytes, $parameter->{bit});
-            $value = Math::BigInt->new('0b' . $bits) if defined $bits;
+        my $value;
+        if ($type =~ /^bit/) {
+            # Handle bit-based types, e.g., bit2
+            my $bitrange = $parameter->{bit};
+            my $bits = get_bits($bytes, $bitrange);
+            $value = Math::BigInt->new('0b' . $bits)->bstr() if defined $bits;
+        } else {
+            # Handle full-byte values
+            $value = Math::BigInt->new($bytes)->bstr();
         }
 
-        if (defined $unit) {
-            $value = convert_unit($value, $unit, $type);
+        # Convert unit if applicable
+        $value = convert_unit($value, $unit, $type) if defined $unit;
+
+        # Resolve to human-readable value if applicable
+        if ($values && defined $values->{$value}) {
+            $result{"$name definition"} = $values->{$value};
         }
 
-        $result{$name} = $value;
+        $result{$name} = $value // 'undefined';
 
-        if (defined $unit && lc($unit) eq 'deg c') {
-            $result{$name . " F"} = tempC2F($value) if $value ne 'n/a';
-        }
-
-        if ($values) {
-            my $value_def = 'undefined';
-            $value_def = $values->{$value} if ($values->{$value});
-            $result{"$name definition"} = $value_def;
-        }
+        log_to_journald("Decoded '$name': $result{$name}", LOG_DEBUG) if $debug;
     }
 
-    $result{instance} = $result{instance} // undef;
+    $result{instance} = $result{instance} // 'undefined';
 
     return \%result;
 }
 
-# Extract bytes from the data using the specified byte range
+# Function to extract bytes from the data using the specified byte range
 sub get_bytes {
     my ($data, $byterange) = @_;
 
@@ -607,10 +609,12 @@ sub get_bytes {
     my @byte_pairs = $sub_bytes =~ /(..)/g;
     my $bytes = join '', reverse @byte_pairs;
 
+    log_to_journald("Extracted bytes from range $byterange: $bytes", LOG_DEBUG) if $debug;
+
     return $bytes;
 }
 
-# Extract bits from the specified range within a byte
+# Function to extract bits from the specified range within a byte
 sub get_bits {
     my ($bytes, $bitrange) = @_;
     return unless length($bytes);
@@ -621,7 +625,11 @@ sub get_bits {
     my ($start_bit, $end_bit) = split(/-/, $bitrange);
     $end_bit = $start_bit if not defined $end_bit;
 
-    return substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
+    my $extracted_bits = substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
+
+    log_to_journald("Extracted bits '$bitrange' from bytes: $bytes -> $extracted_bits", LOG_DEBUG) if $debug;
+
+    return $extracted_bits;
 }
 
 # Convert hexadecimal to binary representation
