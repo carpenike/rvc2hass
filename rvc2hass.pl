@@ -607,7 +607,7 @@ sub get_bytes {
     my $length = ($end_byte - $start_byte + 1) * 2;
     
     # Log the raw data being processed
-    log_to_journald("Raw data: $data, Byte range: $start_byte-$end_byte", LOG_WARNING);
+    log_to_journald("Raw data: $data, Byte range: $start_byte-$end_byte", LOG_DEBUG) if $debug;
 
     return '' if $start_byte * 2 >= length($data);
     
@@ -616,7 +616,7 @@ sub get_bytes {
     my $bytes = join '', reverse @byte_pairs;
 
     # Log the extracted bytes
-    log_to_journald("Extracted bytes: $bytes for range $byterange", LOG_WARNING);
+    log_to_journald("Extracted bytes: $bytes for range $byterange", LOG_DEBUG) if $debug;
 
     return $bytes;
 }
