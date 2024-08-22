@@ -283,7 +283,7 @@ sub process_packet {
         # Handle missing or invalid instance
         my $instance = $result->{'instance'};
         if (!defined $instance || $instance =~ /NaN/i) {
-            log_to_journald("Invalid or missing instance for DGN $dgn, defaulting to 'default'", LOG_WARNING);
+            log_to_journald("Invalid or missing instance for DGN $dgn, defaulting to 'default'", LOG_DEBUG) if $debug;
             $instance = 'default';  # Set to a default value
         }
 
