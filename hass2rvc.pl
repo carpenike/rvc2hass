@@ -133,6 +133,7 @@ sub process_mqtt_command {
     my $command = 0;
     my $brightness = 125;  # Default brightness
     my $action = '';  # Descriptive action for logging
+    my $skip_state_change = 0;  # Flag to skip state change if brightness was set
 
     # Determine command based on message type
     if ($command_type eq 'state') {
@@ -150,8 +151,9 @@ sub process_mqtt_command {
     } elsif ($command_type eq 'brightness') {
         if ($message =~ /^\d+$/) {  # Check if the message is a valid number
             $brightness = int($message);
-            $command = ($brightness > 0) ? 0 : 3;  # If brightness > 0, set level, else OFF
+            $command = 0;  # Set brightness command
             $action = "Setting brightness to $brightness";
+            $skip_state_change = 1;  # Skip the state change if brightness was set
         } else {
             log_to_journald("Invalid brightness value: $message", LOG_WARNING);
             return;
@@ -173,7 +175,6 @@ sub process_mqtt_command {
     my $dgnlo = 'DB';
     my $srcAD = 99;
     my $duration = 255;
-    my $bypass = 0;
 
     my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
     my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness, $command, $duration);
@@ -184,6 +185,9 @@ sub process_mqtt_command {
 
     # Log the actual CAN bus command being sent
     log_to_journald("CAN bus command: cansend $can_interface $hexCanId#$hexData", LOG_INFO);
+
+    # If brightness was set, do not send the state change command separately
+    return if $skip_state_change;
 
     # If $command is 0 or 17, additional commands would be sent
     if ($command == 0 || $command == 17) {
