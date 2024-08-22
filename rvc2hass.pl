@@ -338,7 +338,7 @@ sub publish_unmanaged_device {
     my $message = $json->encode($result);
 
     $mqtt->publish($topic, $message);
-    log_to_journald("Published unmanaged device data to $topic", LOG_INFO);
+    log_to_journald("Published unmanaged device data to $topic", LOG_DEBUG) if $debug;
 }
 
 # Handle dimmable light packets, calculating brightness and command state
@@ -604,15 +604,15 @@ sub get_bytes {
 
     my ($start_byte, $end_byte) = split(/-/, $byterange);
     $end_byte = $start_byte if not defined $end_byte;
-    my $length = ($end_byte - $start_byte + 1) * 2;
+    my $length = ($end_byte - $start_byte + 1) * 2;  # Each byte is represented by 2 hex digits
     
     return '' if $start_byte * 2 >= length($data);
     
-    my $sub_bytes = substr($data, $start_byte * 2, $length);
-    my @byte_pairs = $sub_bytes =~ /(..)/g;
-    my $bytes = join '', reverse @byte_pairs;
+    my $sub_bytes = substr($data, $start_byte * 2, $length);  # Extract the byte string
+    my @byte_pairs = $sub_bytes =~ /(..)/g;  # Match pairs of hex digits
+    my $bytes = join '', reverse @byte_pairs;  # Reverse the byte order if necessary
 
-    log_to_journald("Extracted bytes from range $byterange: $bytes", LOG_DEBUG) if $debug;
+    log_to_journald("Extracted bytes from range $byterange: $sub_bytes (interpreted as: $bytes)", LOG_DEBUG) if $debug;
 
     return $bytes;
 }
@@ -639,6 +639,7 @@ sub get_bits {
 sub hex2bin {
     my $hex = shift;
     return unpack("B8", pack("C", hex $hex)) if length($hex) == 2;
+    log_to_journald("hex2bin received an unexpected hex value: $hex", LOG_DEBUG) if $debug;
     return '';
 }
 
@@ -646,6 +647,8 @@ sub hex2bin {
 sub convert_unit {
     my ($value, $unit, $type) = @_;
     my $new_value = $value;
+
+    log_to_journald("Converting value $value of type $type with unit $unit", LOG_DEBUG) if $debug;
 
     if (lc($unit) eq 'pct') {
         $new_value = 'n/a';
@@ -673,23 +676,11 @@ sub convert_unit {
         } elsif ($type eq 'uint32') {
             $new_value = round($value * 0.001 - 2000000, 0.01) unless $value == 4294967295;
         }
-    } elsif (lc($unit) eq 'hz') {
-        if ($type eq 'uint8') {
-            $new_value = $value;
-        } elsif ($type eq 'uint16') {
-            $new_value = round($value / 128, 0.1);
-        }
-    } elsif (lc($unit) eq 'sec') {
-        if ($type eq 'uint8') {
-            if ($value > 240 && $value < 251) {
-                $new_value = (($value - 240) + 4) * 60;
-            }
-        } elsif ($type eq 'uint16') {
-            $new_value = $value * 2;
-        }
     } elsif (lc($unit) eq 'bitmap') {
         $new_value = sprintf('%08b', $value);
     }
+
+    log_to_journald("Converted value: $new_value", LOG_DEBUG) if $debug;
 
     return $new_value;
 }
