@@ -598,26 +598,30 @@ sub decode {
     return \%result;
 }
 
-# Function to extract bytes from the data using the specified byte range
+# Extract bytes from the data using the specified byte range
 sub get_bytes {
     my ($data, $byterange) = @_;
 
     my ($start_byte, $end_byte) = split(/-/, $byterange);
     $end_byte = $start_byte if not defined $end_byte;
-    my $length = ($end_byte - $start_byte + 1) * 2;  # Each byte is represented by 2 hex digits
+    my $length = ($end_byte - $start_byte + 1) * 2;
     
+    # Log the raw data being processed
+    log_to_journald("Raw data: $data, Byte range: $start_byte-$end_byte", LOG_WARNING);
+
     return '' if $start_byte * 2 >= length($data);
     
-    my $sub_bytes = substr($data, $start_byte * 2, $length);  # Extract the byte string
-    my @byte_pairs = $sub_bytes =~ /(..)/g;  # Match pairs of hex digits
-    my $bytes = join '', reverse @byte_pairs;  # Reverse the byte order if necessary
+    my $sub_bytes = substr($data, $start_byte * 2, $length);
+    my @byte_pairs = $sub_bytes =~ /(..)/g;
+    my $bytes = join '', reverse @byte_pairs;
 
-    log_to_journald("Extracted bytes from range $byterange: $sub_bytes (interpreted as: $bytes)", LOG_DEBUG) if $debug;
+    # Log the extracted bytes
+    log_to_journald("Extracted bytes: $bytes for range $byterange", LOG_WARNING);
 
     return $bytes;
 }
 
-# Function to extract bits from the specified range within a byte
+# Extract bits from the specified range within a byte
 sub get_bits {
     my ($bytes, $bitrange) = @_;
     return unless length($bytes);
@@ -630,6 +634,7 @@ sub get_bits {
 
     my $extracted_bits = substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
 
+    # Log the extracted bits
     log_to_journald("Extracted bits '$bitrange' from bytes: $bytes -> $extracted_bits", LOG_DEBUG) if $debug;
 
     return $extracted_bits;
