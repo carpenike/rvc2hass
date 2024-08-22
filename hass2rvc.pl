@@ -35,9 +35,10 @@ my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0
 my $can_bus_mutex :shared;
 my $keep_running :shared = 1;
 
-# Only log environment variables if debugging is enabled
+# Log environment variables if debugging is enabled
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } grep { $_ !~ /PASSWORD|SECRET/ } keys %ENV), LOG_DEBUG) if $debug;
 
+# Allow insecure MQTT logins (needed for certain MQTT brokers)
 $ENV{MQTT_SIMPLE_ALLOW_INSECURE_LOGIN} = 1;
 
 # Initialize MQTT connection
@@ -46,11 +47,11 @@ my $mqtt = initialize_mqtt();
 # Start Watchdog thread if configured
 start_watchdog(\$mqtt, $watchdog_interval) if $watchdog_interval;
 
-# Load YAML files containing specifications and device configurations
+# Load YAML configuration files containing device specifications
 my $script_dir = dirname(__FILE__);
 my $lookup = LoadFile("$script_dir/config/coach-devices.yml");
 
-# Signal handling
+# Signal handling for graceful shutdown
 $SIG{'INT'} = sub { shutdown_gracefully("INT") };
 $SIG{'TERM'} = sub { shutdown_gracefully("TERM") };
 
@@ -63,7 +64,7 @@ foreach my $dgn (keys %$lookup) {
     foreach my $instance (keys %{$lookup->{$dgn}}) {
         foreach my $config (@{$lookup->{$dgn}->{$instance}}) {
 
-            # Flatten the configuration by merging the template values
+            # Merge template values into configuration if present
             if (exists $config->{'<<'}) {
                 my %merged_config = (%{$config->{'<<'}}, %$config);
                 $config = \%merged_config;
@@ -78,13 +79,14 @@ foreach my $dgn (keys %$lookup) {
 
             # Expand and subscribe to the command topic
             my $command_topic = expand_template($config->{command_topic}, $config->{ha_name});
-            
+
             # Clear retained messages for command topic
             $mqtt->retain($command_topic, '') if $command_topic;
-            
+
             if ($command_topic) {
                 $mqtt->subscribe($command_topic => sub {
                     my ($topic, $message) = @_;
+                    log_to_journald("Received MQTT message on $topic: $message", LOG_DEBUG);
                     process_mqtt_command($instance, $config, $message, 'state');
                 });
             } else {
@@ -94,13 +96,14 @@ foreach my $dgn (keys %$lookup) {
             # If the device is dimmable, expand and subscribe to the brightness command topic
             if ($config->{dimmable}) {
                 my $brightness_command_topic = expand_template($config->{brightness_command_topic}, $config->{ha_name});
-                
+
                 # Clear retained messages for brightness command topic
                 $mqtt->retain($brightness_command_topic, '') if $brightness_command_topic;
 
                 if ($brightness_command_topic) {
                     $mqtt->subscribe($brightness_command_topic => sub {
                         my ($topic, $message) = @_;
+                        log_to_journald("Received brightness command on $topic: $message", LOG_DEBUG);
                         process_mqtt_command($instance, $config, $message, 'brightness');
                     });
                 } else {
