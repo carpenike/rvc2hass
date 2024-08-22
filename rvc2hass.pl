@@ -578,11 +578,14 @@ sub decode {
         }
 
         # Convert unit if applicable
-        $value = convert_unit($value, $unit, $type) if defined $unit;
+        if (defined $unit) {
+            $value = convert_unit($value, $unit, $type);
+        }
 
         # Resolve to human-readable value if applicable
         if ($values && defined $values->{$value}) {
             $result{"$name definition"} = $values->{$value};
+            $value = $values->{$value};  # Replace the numeric value with its human-readable counterpart
         }
 
         $result{$name} = $value // 'undefined';
@@ -639,7 +642,7 @@ sub hex2bin {
     return '';
 }
 
-# Convert values between different units
+# Function to convert values between different units
 sub convert_unit {
     my ($value, $unit, $type) = @_;
     my $new_value = $value;
