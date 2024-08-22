@@ -45,7 +45,7 @@ $ENV{MQTT_SIMPLE_ALLOW_INSECURE_LOGIN} = 1;
 my $mqtt = initialize_mqtt();
 
 # Start Watchdog thread if configured
-start_watchdog(\$mqtt, $watchdog_interval) if $watchdog_interval;
+start_watchdog($mqtt, $watchdog_interval) if $watchdog_interval;
 
 # Load YAML configuration files containing device specifications
 my $script_dir = dirname(__FILE__);
@@ -119,7 +119,11 @@ systemd_notify("READY=1");
 
 # Main loop to keep the script running
 while ($keep_running) {
-    $mqtt->tick();
+    try {
+        $mqtt->tick();
+    } catch {
+        log_to_journald("Error during MQTT tick: $_", LOG_ERR);
+    };
     sleep(1);
 }
 
@@ -217,8 +221,12 @@ sub send_can_command {
         # Log the CAN bus command that would be sent
         log_to_journald("CAN bus command: cansend $can_interface $hexCanId#$hexData", LOG_INFO);
 
-        # Uncomment the line below to enable CAN bus sending
-        system("cansend $can_interface $hexCanId#$hexData") if (!$debug);
+        try {
+            # Uncomment the line below to enable CAN bus sending
+            system("cansend $can_interface $hexCanId#$hexData") if (!$debug);
+        } catch {
+            log_to_journald("Error sending CAN bus command: $_", LOG_ERR);
+        };
     }
 }
 
