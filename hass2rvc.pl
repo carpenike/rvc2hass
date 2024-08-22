@@ -45,7 +45,7 @@ $ENV{MQTT_SIMPLE_ALLOW_INSECURE_LOGIN} = 1;
 my $mqtt = initialize_mqtt();
 
 # Start Watchdog thread if configured
-start_watchdog(\$mqtt, $watchdog_interval) if $watchdog_interval;
+start_watchdog($mqtt, $watchdog_interval) if $watchdog_interval;
 
 # Load YAML configuration files containing device specifications
 my $script_dir = dirname(__FILE__);
@@ -119,7 +119,11 @@ systemd_notify("READY=1");
 
 # Main loop to keep the script running
 while ($keep_running) {
-    $mqtt->tick();
+    try {
+        $mqtt->tick();
+    } catch {
+        log_to_journald("Error during MQTT tick: $_", LOG_ERR);
+    };
     sleep(1);
 }
 
@@ -217,8 +221,12 @@ sub send_can_command {
         # Log the CAN bus command that would be sent
         log_to_journald("CAN bus command: cansend $can_interface $hexCanId#$hexData", LOG_INFO);
 
-        # Uncomment the line below to enable CAN bus sending
-        system("cansend $can_interface $hexCanId#$hexData") if (!$debug);
+        try {
+            # Uncomment the line below to enable CAN bus sending
+            system("cansend $can_interface $hexCanId#$hexData") if (!$debug);
+        } catch {
+            log_to_journald("Error sending CAN bus command: $_", LOG_ERR);
+        };
     }
 }
 
@@ -315,7 +323,7 @@ sub start_watchdog {
         my ($topic, $message) = @_;
         log_to_journald("Received heartbeat on $heartbeat_topic: $message", LOG_DEBUG) if $debug;
         if ($message eq "Heartbeat message from watchdog") {
-            $heartbeat_received = 1;
+            $heartbeat_received = 1;  # Set the flag when the correct heartbeat is received
         }
     });
 
@@ -325,37 +333,40 @@ sub start_watchdog {
             my $mqtt_success = 0;
 
             try {
-                # Reset the heartbeat_received flag
+                # Reset the heartbeat_received flag for each watchdog loop iteration
                 $heartbeat_received = 0;
 
                 # Publish a heartbeat message to MQTT
                 $mqtt->publish($heartbeat_topic, "Heartbeat message from watchdog");
                 log_to_journald("Published heartbeat message to MQTT", LOG_DEBUG) if $debug;
 
-                # Wait for a confirmation message
-                for (my $wait = 0; $wait < 10; $wait++) {
-                    for (1..10) { $mqtt->tick(); sleep(0.1); }
-                    if ($heartbeat_received) {
+                # Wait for a confirmation message, checking periodically
+                for (my $wait = 0; $wait < 5; $wait++) {  # Reduced the loop for quicker feedback
+                    for (1..10) { 
+                        $mqtt->tick(); 
+                        sleep(0.1);  # Shorter sleep, making it more responsive
+                    }
+                    if ($heartbeat_received) {  # If heartbeat is received, break the loop
                         $mqtt_success = 1;
                         last;
                     }
                 }
 
+                # If no heartbeat was received, log an error and exit
                 if (!$mqtt_success) {
                     log_to_journald("Failed to receive heartbeat confirmation. Exiting.", LOG_ERR);
                     die "Error in watchdog loop: Failed to receive heartbeat confirmation. Exiting.";
                 }
 
             } catch {
+                # Catch and log any errors that occur in the watchdog loop
                 log_to_journald("Error in watchdog loop: $_. Exiting.", LOG_ERR);
                 die "Error in watchdog loop: $_. Exiting.";
             };
 
-            # Notify systemd that the process is still alive
+            # Notify systemd that the process is still alive if MQTT was successful
             if ($mqtt_success) {
-                if ($debug) {
-                    log_to_journald("Notifying systemd watchdog.", LOG_DEBUG);
-                }
+                log_to_journald("Notifying systemd watchdog.", LOG_DEBUG) if $debug;
                 if (systemd_notify("WATCHDOG=1")) {
                     log_to_journald("Systemd watchdog notified successfully.", LOG_INFO) if $debug;
                 } else {
@@ -363,7 +374,7 @@ sub start_watchdog {
                 }
             }
 
-            sleep($watchdog_interval);
+            sleep($watchdog_interval);  # Sleep for the specified interval before next loop
         }
     });
 
