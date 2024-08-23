@@ -15,7 +15,7 @@ use threads;
 use threads::shared;
 
 # Command-line options
-my $debug = 0;
+my $debug = 1;
 my $log_level = LOG_INFO;
 GetOptions("debug" => \$debug, "log-level=i" => \$log_level);
 
@@ -146,25 +146,33 @@ exit(0);
 sub process_mqtt_command {
     my ($instance, $config, $message, $command_type) = @_;
 
+    log_to_journald("Entering process_mqtt_command with message: $message, command_type: $command_type, ha_name: $config->{ha_name}", LOG_DEBUG);
+
     my $command;
     my $brightness;
 
     # Handle different command types
     if ($command_type eq 'state') {
+        log_to_journald("Processing state command: $message", LOG_DEBUG);
         if ($message eq 'ON') {
             # Use the last brightness value if available, otherwise use default
             $brightness = $config->{last_brightness} // 125;
             $command = 0;  # Set level command to turn on with the current brightness
+            log_to_journald("State set to ON with brightness $brightness", LOG_DEBUG);
         } elsif ($message eq 'OFF') {
             $command = 3;  # OFF command
             $brightness = undef;  # No brightness value when turning off
+            log_to_journald("State set to OFF", LOG_DEBUG);
         }
     } elsif ($command_type eq 'brightness') {
+        log_to_journald("Processing brightness command: $message", LOG_DEBUG);
         # Handle brightness setting without altering the ON/OFF state
         $brightness = $message;
         $command = 0;  # Set level command
         $config->{last_brightness} = $brightness;  # Save brightness for subsequent ON commands
+        log_to_journald("Brightness set to $brightness", LOG_DEBUG);
     } elsif ($command_type eq 'lock') {
+        log_to_journald("Processing lock command: $message", LOG_DEBUG);
         # Match LOCK or UNLOCK command pattern
         if ($message =~ /^LOCK_(\d+)$/) {
             $instance = $1;  # Extract instance number from 'LOCK_14'
@@ -178,6 +186,9 @@ sub process_mqtt_command {
             log_to_journald("Unknown command for lock: $message", LOG_ERR);
             return;
         }
+    } else {
+        log_to_journald("Unknown command type: $command_type", LOG_ERR);
+        return;
     }
 
     # Validate instance and command
