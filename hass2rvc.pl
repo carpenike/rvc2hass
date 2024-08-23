@@ -146,27 +146,8 @@ exit(0);
 sub process_mqtt_command {
     my ($instance, $config, $message, $command_type) = @_;
 
-    # Ensure instance is numeric or set to a default value (like 0)
-    $instance = defined($instance) && $instance ne '' ? $instance : 0;
-
-    my $command;
-    my $brightness;
-
-    if ($command_type eq 'state') {
-        if ($message eq 'ON') {
-            # Use the last brightness value if available, otherwise use default
-            $brightness = $config->{last_brightness} // 125;
-            $command = 0;  # Set level command to turn on with the current brightness
-        } elsif ($message eq 'OFF') {
-            $command = 3;  # OFF command
-            $brightness = undef;  # No brightness value when turning off
-        }
-    } elsif ($command_type eq 'brightness') {
-        # Handle brightness setting without altering the ON/OFF state
-        $brightness = $message;
-        $command = 0;  # Set level command
-        $config->{last_brightness} = $brightness;  # Save brightness for subsequent ON commands
-    } elsif ($command_type eq 'lock') {
+    # Default instance to 0 if not defined or numeric
+    if ($command_type eq 'lock') {
         if ($message eq $config->{payload_lock}) {
             ($instance) = $config->{payload_lock} =~ /_(\d+)$/;  # Extract instance from payload_lock
             $command = 1;  # Lock command
@@ -179,10 +160,13 @@ sub process_mqtt_command {
             log_to_journald("Unknown command for lock: $message", LOG_ERR);
             return;
         }
-    }
 
-    # Construct CAN bus command for lock/unlock
-    if ($command_type eq 'lock') {
+        # Ensure instance is numeric
+        $instance = (defined $instance && $instance =~ /^\d+$/) ? $instance : 0;
+        # Ensure command is defined
+        $command = defined $command ? $command : 0;
+
+        # Construct CAN bus command for lock/unlock
         my $prio = 6;
         my $dgnhi = '1FE';
         my $dgnlo = 'DB';
@@ -197,6 +181,23 @@ sub process_mqtt_command {
         send_can_command($can_interface, $hexCanId, $hexData);
     } else {
         # Handle brightness and state changes (lights, etc.)
+        $instance = (defined $instance && $instance =~ /^\d+$/) ? $instance : 0;
+
+        if ($command_type eq 'state') {
+            if ($message eq 'ON') {
+                $brightness = $config->{last_brightness} // 125;
+                $command = 0;  # Set level command to turn on with the current brightness
+            } elsif ($message eq 'OFF') {
+                $command = 3;  # OFF command
+                $brightness = undef;  # No brightness value when turning off
+            }
+        } elsif ($command_type eq 'brightness') {
+            $brightness = $message;
+            $command = 0;  # Set level command
+            $config->{last_brightness} = $brightness;  # Save brightness for subsequent ON commands
+        }
+
+        # Convert brightness percentage to scale if it's defined
         $brightness = defined($brightness) ? int($brightness * 2) : 0xFF;
 
         # Construct CAN bus command
