@@ -140,7 +140,6 @@ while ($keep_running) {
 log_to_journald("Exiting main loop. Cleaning up...", LOG_INFO);
 exit(0);
 
-# Process incoming MQTT commands and convert to CAN bus messages
 sub process_mqtt_command {
     my ($instance, $config, $message, $command_type) = @_;
 
@@ -151,14 +150,15 @@ sub process_mqtt_command {
 
     my $command;
     my $brightness;
-    my $duration = 0;  # Default duration is 0 for state commands
-    my $reverse;       # Variable for reverse ID
+    my $duration = 0; # Default duration is 0 for state commands
+    my $reverse;      # Variable for reverse ID
 
     if ($command_type eq 'state') {
         log_to_journald("Processing state command: $message", LOG_DEBUG);
 
         if ($message eq 'ON') {
-            $brightness = $config->{last_brightness} // 125;
+            # Use the last brightness value if available, otherwise use default
+            $brightness = $config->{last_brightness} // 125;  # Default brightness
             $command = 0;  # Set level command to turn on with the current brightness
         } elsif ($message eq 'OFF') {
             $command = 3;  # OFF command
@@ -224,7 +224,7 @@ sub process_mqtt_command {
         my $dgnhi = '1FE';
         my $dgnlo = 'DB';
         my $srcAD = 99;
-        my $duration = 255;  # Set default duration for lights
+        $duration = 255;  # Set default duration for lights to be indefinite
 
         my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
         my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
