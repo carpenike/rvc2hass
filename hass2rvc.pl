@@ -179,7 +179,7 @@ sub process_mqtt_command {
             log_to_journald("Locking device $config->{ha_name} with instance $instance", LOG_INFO);
         } elsif ($message =~ /^UNLOCK_(\d+)$/) {
             $instance = $1;
-            $command = 2;  # Unlock command
+            $command = 1;  # Unlock command
             $duration = 1;  # Lock/Unlock action duration set to 1 second
             log_to_journald("Unlocking device $config->{ha_name} with instance $instance", LOG_INFO);
         } else {
