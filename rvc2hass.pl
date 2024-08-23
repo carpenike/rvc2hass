@@ -419,7 +419,7 @@ sub publish_mqtt {
     }
 
     my $ha_name = $config->{ha_name} // '';
-    my $friendly_name = $config->{device_name} // $config->{ha_name};  # Use device_name or fall back to ha_name
+    my $friendly_name = $config->{device_name} // $config->{friendly_name};  # Use device_name or fall back to ha_name
     my $device_class = $config->{device_class} // 'switch';  # Default to 'switch' if not specified
     my $is_dimmable = $config->{dimmable} // 0;  # Default to non-dimmable if not specified
     my $suggested_area = $config->{suggested_area};  # Retrieve the suggested area from the device config
