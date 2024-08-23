@@ -164,16 +164,14 @@ sub process_mqtt_command {
         $command = 0;  # Set level command
         $config->{last_brightness} = $brightness;  # Save brightness for subsequent ON commands
     } elsif ($command_type eq 'lock') {
-        # Match the incoming message against payload_lock or payload_unlock
-        if ($message eq $config->{payload_lock}) {
-            # Extract the instance from the message 'LOCK_14'
-            ($instance) = $message =~ /_(\d+)$/;
-            $command = 1;  # Lock command
+        # Ensure instance and command are extracted correctly from the message
+        if ($message =~ /^LOCK_(\d+)$/) {
+            $instance = $1;  # Extract instance from the message 'LOCK_14'
+            $command = 1;    # Lock command
             log_to_journald("Locking device $config->{ha_name} with instance $instance", LOG_INFO);
-        } elsif ($message eq $config->{payload_unlock}) {
-            # Extract the instance from the message 'UNLOCK_17'
-            ($instance) = $message =~ /_(\d+)$/;
-            $command = 2;  # Unlock command
+        } elsif ($message =~ /^UNLOCK_(\d+)$/) {
+            $instance = $1;  # Extract instance from the message 'UNLOCK_17'
+            $command = 2;    # Unlock command
             log_to_journald("Unlocking device $config->{ha_name} with instance $instance", LOG_INFO);
         } else {
             log_to_journald("Unknown command for lock: $message", LOG_ERR);
