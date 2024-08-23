@@ -167,12 +167,22 @@ sub process_mqtt_command {
         # Extract instance from payload if it's a lock command
         if ($message eq $config->{payload_lock}) {
             ($instance) = $config->{payload_lock} =~ /_(\d+)$/;  # Extract instance from payload_lock
-            $command = 1;  # Lock command
-            log_to_journald("Locking device $config->{ha_name} with instance $instance", LOG_INFO);
+            if (defined $instance) {
+                $command = 1;  # Lock command
+                log_to_journald("Locking device $config->{ha_name} with instance $instance", LOG_INFO);
+            } else {
+                log_to_journald("Failed to extract instance from payload_lock: $config->{payload_lock}", LOG_ERR);
+                return;  # Exit early if instance extraction fails
+            }
         } elsif ($message eq $config->{payload_unlock}) {
             ($instance) = $config->{payload_unlock} =~ /_(\d+)$/;  # Extract instance from payload_unlock
-            $command = 2;  # Unlock command
-            log_to_journald("Unlocking device $config->{ha_name} with instance $instance", LOG_INFO);
+            if (defined $instance) {
+                $command = 2;  # Unlock command
+                log_to_journald("Unlocking device $config->{ha_name} with instance $instance", LOG_INFO);
+            } else {
+                log_to_journald("Failed to extract instance from payload_unlock: $config->{payload_unlock}", LOG_ERR);
+                return;  # Exit early if instance extraction fails
+            }
         } else {
             log_to_journald("Unknown command for lock: $message", LOG_ERR);
             return;
@@ -181,6 +191,12 @@ sub process_mqtt_command {
 
     # Ensure instance is numeric or set to a default value (like 0)
     $instance = (defined $instance && $instance =~ /^\d+$/) ? $instance : 0;
+
+    # Ensure command is initialized
+    if (!defined $command) {
+        log_to_journald("Command is uninitialized for message: $message and ha_name: $config->{ha_name}", LOG_ERR);
+        return;  # Exit early if command is uninitialized
+    }
 
     # Construct CAN bus command
     my $prio = 6;
