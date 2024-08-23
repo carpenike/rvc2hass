@@ -146,9 +146,6 @@ exit(0);
 sub process_mqtt_command {
     my ($instance, $config, $message, $command_type) = @_;
 
-    # Ensure instance is numeric or set to a default value (like 0)
-    $instance = defined($instance) && $instance ne '' ? $instance : 0;
-
     my $command;
     my $brightness;
 
@@ -167,6 +164,7 @@ sub process_mqtt_command {
         $command = 0;  # Set level command
         $config->{last_brightness} = $brightness;  # Save brightness for subsequent ON commands
     } elsif ($command_type eq 'lock') {
+        # Extract instance from payload if it's a lock command
         if ($message eq $config->{payload_lock}) {
             ($instance) = $config->{payload_lock} =~ /_(\d+)$/;  # Extract instance from payload_lock
             $command = 1;  # Lock command
@@ -181,14 +179,17 @@ sub process_mqtt_command {
         }
     }
 
-    # Construct CAN bus command for lock/unlock
-    if ($command_type eq 'lock') {
-        my $prio = 6;
-        my $dgnhi = '1FE';
-        my $dgnlo = 'DB';
-        my $srcAD = 99;
-        my $duration = 0;  # Lock/Unlock typically doesn't need a duration
+    # Ensure instance is numeric or set to a default value (like 0)
+    $instance = (defined $instance && $instance =~ /^\d+$/) ? $instance : 0;
 
+    # Construct CAN bus command
+    my $prio = 6;
+    my $dgnhi = '1FE';
+    my $dgnlo = 'DB';
+    my $srcAD = 99;
+
+    if ($command_type eq 'lock') {
+        my $duration = 0;  # Lock/Unlock typically doesn't need a duration
         my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
         my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
         my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, 0, $command, $duration);
@@ -198,12 +199,6 @@ sub process_mqtt_command {
     } else {
         # Handle brightness and state changes (lights, etc.)
         $brightness = defined($brightness) ? int($brightness * 2) : 0xFF;
-
-        # Construct CAN bus command
-        my $prio = 6;
-        my $dgnhi = '1FE';
-        my $dgnlo = 'DB';
-        my $srcAD = 99;
         my $duration = 255;
 
         my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
