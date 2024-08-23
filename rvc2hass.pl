@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use File::Temp qw(tempdir);
 use YAML::XS qw(LoadFile);
-use JSON qw(encode_json decode_json);
+use JSON qw();  # Load JSON without importing functions directly
 use Net::MQTT::Simple;
 use Try::Tiny;
 use IO::Socket::UNIX;
@@ -15,6 +15,10 @@ use File::Basename;
 use Sys::Syslog qw(:standard :macros);
 use Getopt::Long;
 use POSIX qw(strftime);
+use Math::BigInt;  # Still use Math::BigInt for large numbers
+
+# Create a JSON object with the allow_blessed and convert_blessed options enabled
+my $json = JSON->new->allow_blessed(1)->convert_blessed(1);
 
 # Command-line options
 my $debug = 0;
@@ -56,7 +60,7 @@ my $decoders = LoadFile("$script_dir/config/rvc-spec.yml");
 my $lookup = LoadFile("$script_dir/config/coach-devices.yml");
 
 # Log the loaded YAML structure if debugging is enabled
-log_to_journald("Loaded YAML structure: " . Dumper($lookup), LOG_DEBUG) if $debug;
+log_to_journald("Loaded YAML structure: " . $json->encode($lookup), LOG_DEBUG) if $debug;
 
 # Create a temporary directory for undefined DGNs
 my $temp_dir = tempdir(CLEANUP => 1);
@@ -260,19 +264,37 @@ sub process_packet {
     return unless @parts >= 5;  # Ensure there are enough parts to process
 
     my $can_id_hex = $parts[2];
-    my $binCanId = sprintf("%029b", hex($can_id_hex));  # Ensure leading zeros for CAN ID
+
+    # Handling for CAN ID, but use Math::BigInt only when needed
+    my $can_id = Math::BigInt->from_hex($can_id_hex)->bstr();  # Convert to string for safer handling
+    my $binCanId = sprintf("%029b", $can_id);  # Ensure leading zeros for CAN ID
+
     my $dgn_bin = substr($binCanId, 4, 17);  # Extract DGN from CAN ID
     my $dgn = sprintf("%05X", oct("0b$dgn_bin"));  # Convert binary DGN to hex
 
     log_to_journald("DGN: $dgn, Data: @parts[4..$#parts]", LOG_DEBUG) if $debug;
 
     my $data_bytes = join '', @parts[4..$#parts];
+    
+    # Publish the raw CAN bus data for comparison
+    publish_raw_can_data($dgn, $can_id, $data_bytes);
+
     my $result = decode($dgn, $data_bytes);
 
     if ($result) {
-        log_to_journald("Decoded result: " . encode_json($result), LOG_DEBUG) if $debug;
-        my $instance = $result->{'instance'} // 'default';  # Default to 'default' if instance not found
+        log_to_journald("Decoded result: " . $json->encode($result), LOG_DEBUG) if $debug;
 
+        # Handle missing or invalid instance
+        my $instance = $result->{'instance'};
+        if (!defined $instance || $instance =~ /NaN/i) {
+            log_to_journald("Invalid or missing instance for DGN $dgn, defaulting to 'default'", LOG_DEBUG) if $debug;
+            $instance = 'default';  # Set to a default value
+        }
+
+        # Publish the fully decoded data for all devices
+        publish_decoded_data($dgn, $instance, $result);
+
+        # Check for configured devices and publish the data
         if (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{$instance}) {
             my $configs = $lookup->{$dgn}->{$instance};
             foreach my $config (@$configs) {
@@ -311,6 +333,28 @@ sub process_packet {
     }
 }
 
+# Publish the raw CAN bus data to a specific topic
+sub publish_raw_can_data {
+    my ($dgn, $can_id, $data) = @_;
+    my $topic = "rvc2hass/raw/$dgn";
+    my %message = (
+        can_id => $can_id,
+        raw_data => $data,
+    );
+    my $json_message = $json->encode(\%message);
+    $mqtt->publish($topic, $json_message);
+    log_to_journald("Published raw CAN data to $topic", LOG_DEBUG) if $debug;
+}
+
+# Publish the fully decoded data to a specific topic for all devices
+sub publish_decoded_data {
+    my ($dgn, $instance, $result) = @_;
+    my $topic = "rvc2hass/decoded/$dgn/$instance";
+    my $json_message = $json->encode($result);
+    $mqtt->publish($topic, $json_message);
+    log_to_journald("Published decoded data to $topic", LOG_DEBUG) if $debug;
+}
+
 # Handle dimmable light packets, calculating brightness and command state
 sub handle_dimmable_light {
     my ($config, $result) = @_;
@@ -322,7 +366,7 @@ sub handle_dimmable_light {
     }
     
     # Log incoming result data if debugging is enabled
-    log_to_journald("Received result in handle_dimmable_light: " . encode_json($result), LOG_DEBUG) if $debug;
+    log_to_journald("Received result in handle_dimmable_light: " . $json->encode($result), LOG_DEBUG) if $debug;
     
     # Extract brightness from result
     my $brightness = $result->{'operating status (brightness)'};
@@ -357,7 +401,7 @@ sub handle_dimmable_light {
     }
     
     # Log result before publishing if debugging is enabled
-    log_to_journald("Result before publishing: " . encode_json($result), LOG_DEBUG) if $debug;
+    log_to_journald("Result before publishing: " . $json->encode($result), LOG_DEBUG) if $debug;
     
     # Publish MQTT message
     publish_mqtt($config, $result);
@@ -387,19 +431,19 @@ sub publish_mqtt {
     }
 
     # Expand templates, ensuring each template variable is properly initialized
-    my $state_topic = expand_template($config->{state_topic}, $ha_name);
+    my $state_topic = expand_template($config->{state_topic}, $ha_name) if $device_class ne 'lock';  # No state topic for locks
     my $command_topic = expand_template($config->{command_topic}, $ha_name);
     my $brightness_state_topic = expand_template($config->{brightness_state_topic}, $ha_name) if $is_dimmable;
     my $brightness_command_topic = expand_template($config->{brightness_command_topic}, $ha_name) if $is_dimmable;
 
     # Ensure the configuration for the MQTT topics is defined before attempting to use them
-    if (!$state_topic || !$command_topic || ($is_dimmable && (!$brightness_state_topic || !$brightness_command_topic))) {
+    if ((!$state_topic && $device_class ne 'lock') || !$command_topic || ($is_dimmable && (!$brightness_state_topic || !$brightness_command_topic))) {
         log_to_journald("Undefined or invalid topic template for ha_name: $ha_name", LOG_ERR);
         return;
     }
 
     # Sanitize topics to remove double slashes
-    $state_topic =~ s/\/{2,}/\//g;
+    $state_topic =~ s/\/{2,}/\//g if defined $state_topic;
     $command_topic =~ s/\/{2,}/\//g;
     $brightness_state_topic =~ s/\/{2,}/\//g if defined $brightness_state_topic;
     $brightness_command_topic =~ s/\/{2,}/\//g if defined $brightness_command_topic;
@@ -414,7 +458,6 @@ sub publish_mqtt {
             name => $friendly_name,
             unique_id => $ha_name,
             device_class => $device_class,
-            state_topic => $state_topic,
             command_topic => $command_topic,
             availability => [
                 {
@@ -423,28 +466,45 @@ sub publish_mqtt {
                     payload_available => 'online'
                 }
             ],
-            payload_on => $config->{payload_on} // 'ON',
-            payload_off => $config->{payload_off} // 'OFF',
-            state_value_template => $config->{state_value_template} // '{{ value_json.state }}',
             device => {
                 suggested_area => $suggested_area,
                 manufacturer => $manufacturer,
+                identifiers => [$ha_name],
+                name => $friendly_name,
             }
         );
 
-        # Additional properties for dimmable lights
-        if ($is_dimmable) {
-            $config_message{brightness} = JSON::true;
-            $config_message{brightness_scale} = 100;
-            $config_message{supported_color_modes} = ['brightness'];
-            $config_message{brightness_state_topic} = $brightness_state_topic;
-            $config_message{brightness_command_topic} = $brightness_command_topic;
-            $config_message{brightness_value_template} = $config->{brightness_value_template} // '{{ value_json.brightness }}';
-            $config_message{brightness_command_template} = $config->{brightness_command_template} // '{{ value }}';
+        # Special handling for locks
+        if ($device_class eq 'lock') {
+            $config_message{payload_lock} = $config->{payload_lock} // 'LOCK';
+            $config_message{payload_unlock} = $config->{payload_unlock} // 'UNLOCK';
+            $config_message{optimistic} = JSON::true;  # Locks can be optimistic, meaning no state feedback
+            $config_message{retain} = JSON::false;     # Don't retain lock command state
+        } elsif ($device_class eq 'light') {
+            # Additional properties for dimmable lights
+            if ($is_dimmable) {
+                $config_message{brightness} = JSON::true;
+                $config_message{brightness_scale} = 100;
+                $config_message{supported_color_modes} = ['brightness'];
+                $config_message{brightness_state_topic} = $brightness_state_topic;
+                $config_message{brightness_command_topic} = $brightness_command_topic;
+                $config_message{brightness_value_template} = $config->{brightness_value_template} // '{{ value_json.brightness }}';
+                $config_message{brightness_command_template} = $config->{brightness_command_template} // '{{ value }}';
+            }
+            $config_message{state_topic} = $state_topic;
+            $config_message{payload_on} = $config->{payload_on} // 'ON';
+            $config_message{payload_off} = $config->{payload_off} // 'OFF';
+            $config_message{state_value_template} = $config->{state_value_template} // '{{ value_json.state }}';
+        } else {
+            # Handling for other device classes like switches
+            $config_message{state_topic} = $state_topic if defined $state_topic;
+            $config_message{payload_on} = $config->{payload_on} // 'ON';
+            $config_message{payload_off} = $config->{payload_off} // 'OFF';
+            $config_message{state_value_template} = $config->{state_value_template} // '{{ value_json.state }}';
         }
 
         # Publish the /config message
-        my $config_json = encode_json(\%config_message);
+        my $config_json = $json->encode(\%config_message);
         $mqtt->retain($config_topic, $config_json);
 
         log_to_journald("Published /config for $ha_name to $config_topic", LOG_INFO);
@@ -453,40 +513,42 @@ sub publish_mqtt {
         $sent_configs{$ha_name} = $config;
     }
 
-    # Calculate the current state and brightness
-    my $calculated_state;
-    my $calculated_brightness = $result->{'operating status (brightness)'} // 0;  # Default to 0 if undefined
+    # Calculate the current state and brightness for non-lock devices
+    if ($device_class ne 'lock') {
+        my $calculated_state;
+        my $calculated_brightness = $result->{'operating status (brightness)'} // 0;  # Default to 0 if undefined
 
-    if ($device_class eq 'light') {
-        $calculated_state = ($calculated_brightness > 0) ? 'ON' : 'OFF';
-    } elsif ($device_class eq 'switch') {
-        $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
+        if ($device_class eq 'light') {
+            $calculated_state = ($calculated_brightness > 0) ? 'ON' : 'OFF';
+        } elsif ($device_class eq 'switch') {
+            $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
+        }
+
+        # Track the last sent state and brightness for this device
+        my $last_state = $sent_configs{$ha_name}->{last_state} // '';
+        my $last_brightness = $sent_configs{$ha_name}->{last_brightness} // '';
+
+        # Prepare the state message
+        my %state_message = (
+            state => $calculated_state,
+        );
+
+        # Add brightness to the state message if it's a dimmable light
+        $state_message{brightness} = $calculated_brightness if $is_dimmable;
+
+        # Publish the state message to the /state topic
+        my $state_json = $json->encode(\%state_message);
+        $mqtt->retain($state_topic, $state_json);
+
+        # Log changes only if the state or brightness has changed
+        if ($resend || $calculated_state ne $last_state || ($is_dimmable && $calculated_brightness != $last_brightness)) {
+            log_to_journald("State or brightness has changed for $ha_name. Publishing update: state=$calculated_state" . ($is_dimmable ? ", brightness=$calculated_brightness" : ""), LOG_INFO);
+        }
+
+        # Update the last sent state and brightness
+        $sent_configs{$ha_name}->{last_state} = $calculated_state;
+        $sent_configs{$ha_name}->{last_brightness} = $calculated_brightness if $is_dimmable;
     }
-
-    # Track the last sent state and brightness for this device
-    my $last_state = $sent_configs{$ha_name}->{last_state} // '';
-    my $last_brightness = $sent_configs{$ha_name}->{last_brightness} // '';
-
-    # Prepare the state message
-    my %state_message = (
-        state => $calculated_state,
-    );
-
-    # Add brightness to the state message if it's a dimmable light
-    $state_message{brightness} = $calculated_brightness if $is_dimmable;
-
-    # Publish the state message to the /state topic
-    my $state_json = encode_json(\%state_message);
-    $mqtt->retain($state_topic, $state_json);
-
-    # Log changes only if the state or brightness has changed
-    if ($resend || $calculated_state ne $last_state || ($is_dimmable && $calculated_brightness != $last_brightness)) {
-        log_to_journald("State or brightness has changed for $ha_name. Publishing update: state=$calculated_state" . ($is_dimmable ? ", brightness=$calculated_brightness" : ""), LOG_INFO);
-    }
-
-    # Update the last sent state and brightness
-    $sent_configs{$ha_name}->{last_state} = $calculated_state;
-    $sent_configs{$ha_name}->{last_brightness} = $calculated_brightness if $is_dimmable;
 }
 
 # Function to replace template variables in topics
@@ -508,57 +570,84 @@ sub expand_template {
     return $template;
 }
 
-# Decode the DGN and data bytes to extract relevant parameters and values
+# Enhanced logging in decode subroutine
 sub decode {
     my ($dgn, $data) = @_;
     my %result;
 
+    # Retrieve the decoder configuration for the given DGN
     my $decoder = $decoders->{$dgn};
+
     unless ($decoder) {
         log_to_journald("No decoder found for DGN $dgn", LOG_DEBUG) if $debug;
         return;
     }
 
+    # Initialize the result with basic information
     $result{dgn} = $dgn;
     $result{data} = $data;
     $result{name} = $decoder->{name} || "UNKNOWN-$dgn";
 
+    # Gather parameters from both the decoder and any alias it may reference
     my @parameters;
     push(@parameters, @{$decoders->{$decoder->{alias}}->{parameters}}) if ($decoder->{alias});
     push(@parameters, @{$decoder->{parameters}}) if ($decoder->{parameters});
 
+    # Process each parameter
     foreach my $parameter (@parameters) {
         my $name = $parameter->{name};
         my $type = $parameter->{type} // 'uint';
         my $unit = $parameter->{unit};
         my $values = $parameter->{values};
 
+        # Extract bytes corresponding to the parameter
         my $bytes = get_bytes($data, $parameter->{byte});
-        my $value = hex($bytes);
+        log_to_journald("Processing parameter '$name' with bytes: $bytes", LOG_DEBUG) if $debug;
 
-        if (defined $parameter->{bit}) {
-            my $bits = get_bits($bytes, $parameter->{bit});
+        my $value;
+
+        # Handle bit-based parameters
+        if ($type =~ /^bit/) {
+            my $bitrange = $parameter->{bit};
+            my $bits = get_bits($bytes, $bitrange);
             $value = oct('0b' . $bits) if defined $bits;
+        } else {
+            # Use BigInt only if necessary, otherwise use hex
+            $value = length($bytes) > 8 ? Math::BigInt->new($bytes)->bstr() : hex($bytes);
         }
 
+        # Check for NaN or invalid data patterns (e.g., `FF`)
+        if (!defined($value) || $value eq 'NaN' || $bytes =~ /^F+$/) {
+            log_to_journald("Potential NaN or invalid data detected for parameter '$name': raw bytes = $bytes", LOG_DEBUG) if $debug;
+            $value = '0';  # Replace NaN with a safe fallback value like '0'
+        }
+
+        # Apply unit conversion if a unit is defined
         if (defined $unit) {
             $value = convert_unit($value, $unit, $type);
+            log_to_journald("Converted value for '$name' with unit: $unit -> $value", LOG_DEBUG) if $debug;
+
+            # Check again for NaN after conversion
+            if ($value eq 'NaN') {
+                log_to_journald("NaN detected after conversion for parameter '$name'", LOG_DEBUG);
+                $value = '0';  # Ensure we replace NaN after conversion as well
+            }
         }
 
-        $result{$name} = $value;
-
-        if (defined $unit && lc($unit) eq 'deg c') {
-            $result{$name . " F"} = tempC2F($value) if $value ne 'n/a';
+        # Resolve to human-readable value if a mapping exists
+        if ($values && defined $values->{$value}) {
+            $result{"$name definition"} = $values->{$value};
+            # Replace numeric value with its human-readable equivalent
+            $value = $values->{$value};
         }
 
-        if ($values) {
-            my $value_def = 'undefined';
-            $value_def = $values->{$value} if ($values->{$value});
-            $result{"$name definition"} = $value_def;
-        }
+        # Store the final decoded value in the result hash
+        $result{$name} = $value // '0';  # Ensure no undefined values are stored
+        log_to_journald("Decoded '$name': $result{$name}", LOG_DEBUG) if $debug;
     }
 
-    $result{instance} = $result{instance} // undef;
+    # Ensure the instance value is handled correctly
+    $result{instance} = $result{instance} // '0';  # Replace undefined with '0'
 
     return \%result;
 }
@@ -571,11 +660,17 @@ sub get_bytes {
     $end_byte = $start_byte if not defined $end_byte;
     my $length = ($end_byte - $start_byte + 1) * 2;
     
+    # Log the raw data being processed
+    log_to_journald("Raw data: $data, Byte range: $start_byte-$end_byte", LOG_DEBUG) if $debug;
+
     return '' if $start_byte * 2 >= length($data);
     
     my $sub_bytes = substr($data, $start_byte * 2, $length);
     my @byte_pairs = $sub_bytes =~ /(..)/g;
     my $bytes = join '', reverse @byte_pairs;
+
+    # Log the extracted bytes
+    log_to_journald("Extracted bytes: $bytes for range $byterange", LOG_DEBUG) if $debug;
 
     return $bytes;
 }
@@ -591,20 +686,28 @@ sub get_bits {
     my ($start_bit, $end_bit) = split(/-/, $bitrange);
     $end_bit = $start_bit if not defined $end_bit;
 
-    return substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
+    my $extracted_bits = substr($bits, 7 - $end_bit, $end_bit - $start_bit + 1);
+
+    # Log the extracted bits
+    log_to_journald("Extracted bits '$bitrange' from bytes: $bytes -> $extracted_bits", LOG_DEBUG) if $debug;
+
+    return $extracted_bits;
 }
 
 # Convert hexadecimal to binary representation
 sub hex2bin {
     my $hex = shift;
     return unpack("B8", pack("C", hex $hex)) if length($hex) == 2;
+    log_to_journald("hex2bin received an unexpected hex value: $hex", LOG_DEBUG) if $debug;
     return '';
 }
 
-# Convert values between different units
+# Function to convert values between different units
 sub convert_unit {
     my ($value, $unit, $type) = @_;
     my $new_value = $value;
+
+    log_to_journald("Converting value $value of type $type with unit $unit", LOG_DEBUG) if $debug;
 
     if (lc($unit) eq 'pct') {
         $new_value = 'n/a';
@@ -632,23 +735,11 @@ sub convert_unit {
         } elsif ($type eq 'uint32') {
             $new_value = round($value * 0.001 - 2000000, 0.01) unless $value == 4294967295;
         }
-    } elsif (lc($unit) eq 'hz') {
-        if ($type eq 'uint8') {
-            $new_value = $value;
-        } elsif ($type eq 'uint16') {
-            $new_value = round($value / 128, 0.1);
-        }
-    } elsif (lc($unit) eq 'sec') {
-        if ($type eq 'uint8') {
-            if ($value > 240 && $value < 251) {
-                $new_value = (($value - 240) + 4) * 60;
-            }
-        } elsif ($type eq 'uint16') {
-            $new_value = $value * 2;
-        }
     } elsif (lc($unit) eq 'bitmap') {
         $new_value = sprintf('%08b', $value);
     }
+
+    log_to_journald("Converted value: $new_value", LOG_DEBUG) if $debug;
 
     return $new_value;
 }

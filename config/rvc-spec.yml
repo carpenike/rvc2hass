@@ -2896,12 +2896,19 @@ API_VERSION: 1
     - byte: 4
       name: delay/duration
       type: uint8
+      unit: Sec
+      values:
+        0: delay/duration has expired
+        240: 240 or more seconds remaining
+        252: output is flashing
+        253: out of range (more than 240 seconds remaining)
+        255: no delay/duration active
     - byte: 5
       name: last command
       type: uint8
       values:
         0: set brightness
-        1: on duration
+        1: on
         2: on delay
         3: off
         4: stop
@@ -2931,7 +2938,24 @@ API_VERSION: 1
       values:
         00: operating status is zero
         01: operating status is non-zero or flashing
-        11: interlock command is not supported
+    - byte: 6
+      name: reserved
+      type: bit2
+      bit: 4-5
+      description: Reserved for future use
+    - byte: 6
+      name: undercurrent status
+      type: bit2
+      bit: 6-7
+      values:
+        00: undercurrent not active
+        01: undercurrent active
+        10: undercurrent status timeout (error)
+        11: undercurrent not supported
+    - byte: 7
+      name: master memory value (last level)
+      type: uint8
+      unit: Pct
 
 1FFB9:
   name: DC_DIMMER_COMMAND

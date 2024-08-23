@@ -14,28 +14,28 @@ use File::Basename;
 use threads;
 use threads::shared;
 
-# Command-line options
+# Command-line options for debugging and log level
 my $debug = 0;
 my $log_level = LOG_INFO;
 GetOptions("debug" => \$debug, "log-level=i" => \$log_level);
 
-# Set log level for debugging
+# Set log level to DEBUG if debug flag is enabled
 $log_level = LOG_DEBUG if $debug;
 
 # Configuration Variables
-my $mqtt_host = $ENV{MQTT_HOST} || "localhost";
-my $mqtt_port = $ENV{MQTT_PORT} || 1883;
+my $mqtt_host = $ENV{MQTT_HOST} || "localhost";  # Default MQTT host is localhost
+my $mqtt_port = $ENV{MQTT_PORT} || 1883;         # Default MQTT port
 my $mqtt_username = $ENV{MQTT_USERNAME};
 my $mqtt_password = $ENV{MQTT_PASSWORD};
-my $max_retries = 5;
-my $retry_delay = 5;
-my $can_interface = 'can0';
-my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
-my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;
-my $can_bus_mutex :shared;
-my $keep_running :shared = 1;
+my $max_retries = 5;  # Number of retries for MQTT connection
+my $retry_delay = 5;  # Delay between retries
+my $can_interface = 'can0';  # CAN interface name
+my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;  # Watchdog interval in microseconds
+my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Watchdog interval in seconds
+my $can_bus_mutex :shared;  # Mutex for thread safety when accessing CAN bus
+my $keep_running :shared = 1;  # Shared variable to control main loop execution
 
-# Log environment variables if debugging is enabled
+# Log environment variables if debugging is enabled (excluding sensitive information)
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } grep { $_ !~ /PASSWORD|SECRET/ } keys %ENV), LOG_DEBUG) if $debug;
 
 # Allow insecure MQTT logins (needed for certain MQTT brokers)
@@ -80,15 +80,25 @@ foreach my $dgn (keys %$lookup) {
             # Expand and subscribe to the command topic
             my $command_topic = expand_template($config->{command_topic}, $config->{ha_name});
 
-            # Clear retained messages for command topic
+            # Clear retained messages for command topic if defined
             $mqtt->retain($command_topic, '') if $command_topic;
 
             if ($command_topic) {
-                $mqtt->subscribe($command_topic => sub {
-                    my ($topic, $message) = @_;
-                    log_to_journald("Received MQTT message on $topic: $message", LOG_DEBUG);
-                    process_mqtt_command($instance, $config, $message, 'state');
-                });
+                if ($config->{device_class} && $config->{device_class} eq 'lock') {
+                    # Subscribe specifically for lock/unlock commands
+                    $mqtt->subscribe($command_topic => sub {
+                        my ($topic, $message) = @_;
+                        log_to_journald("Received Lock/Unlock command on $topic: $message", LOG_DEBUG);
+                        process_mqtt_command($instance, $config, $message, 'lock');
+                    });
+                } else {
+                    # Subscribe for other commands (state changes, etc.)
+                    $mqtt->subscribe($command_topic => sub {
+                        my ($topic, $message) = @_;
+                        log_to_journald("Received MQTT message on $topic: $message", LOG_DEBUG);
+                        process_mqtt_command($instance, $config, $message, 'state');
+                    });
+                }
             } else {
                 log_to_journald("Failed to expand command topic for ha_name $config->{ha_name}", LOG_ERR);
             }
@@ -97,7 +107,7 @@ foreach my $dgn (keys %$lookup) {
             if ($config->{dimmable}) {
                 my $brightness_command_topic = expand_template($config->{brightness_command_topic}, $config->{ha_name});
 
-                # Clear retained messages for brightness command topic
+                # Clear retained messages for brightness command topic if defined
                 $mqtt->retain($brightness_command_topic, '') if $brightness_command_topic;
 
                 if ($brightness_command_topic) {
@@ -124,7 +134,7 @@ while ($keep_running) {
     } catch {
         log_to_journald("Error during MQTT tick: $_", LOG_ERR);
     };
-    sleep(1);
+    sleep(1);  # Sleep to prevent high CPU usage
 }
 
 log_to_journald("Exiting main loop. Cleaning up...", LOG_INFO);
@@ -134,53 +144,123 @@ exit(0);
 sub process_mqtt_command {
     my ($instance, $config, $message, $command_type) = @_;
 
+    log_to_journald("Entering process_mqtt_command with message: $message, command_type: $command_type, ha_name: $config->{ha_name}", LOG_DEBUG);
+
     # Ensure instance is numeric or set to a default value (like 0)
     $instance = defined($instance) && $instance ne '' ? $instance : 0;
 
     my $command;
     my $brightness;
+    my $duration = 0; # Default duration is 0 for state commands
+    my $reverse;      # Variable for reverse ID
 
     if ($command_type eq 'state') {
+        log_to_journald("Processing state command: $message", LOG_DEBUG);
+
         if ($message eq 'ON') {
             # Use the last brightness value if available, otherwise use default
-            $brightness = $config->{last_brightness} // 125;
+            $brightness = $config->{last_brightness} // 125;  # Default brightness
             $command = 0;  # Set level command to turn on with the current brightness
+            log_to_journald("State command ON for $config->{ha_name} with brightness $brightness", LOG_DEBUG);
         } elsif ($message eq 'OFF') {
             $command = 3;  # OFF command
             $brightness = undef;  # No brightness value when turning off
+            log_to_journald("State command OFF for $config->{ha_name}", LOG_DEBUG);
         }
+
+        # Construct CAN bus command for state commands (ON/OFF)
+        log_to_journald("Constructing CAN bus command for state command: $message", LOG_DEBUG);
+
+        my $prio = 6;
+        my $dgnhi = '1FE';
+        my $dgnlo = 'DB';
+        my $srcAD = 99;
+        $duration = 255;  # Default duration for state commands (lights)
+
+        my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
+        my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
+        $brightness = defined($brightness) ? int($brightness * 2) : 0xFF;  # Adjust brightness for CAN data
+        my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness, $command, $duration);
+
+        log_to_journald("Sending CAN bus command for lights: cansend $can_interface $hexCanId#$hexData", LOG_INFO);
+        send_can_command($can_interface, $hexCanId, $hexData);
+
     } elsif ($command_type eq 'brightness') {
-        # Handle brightness setting without altering the ON/OFF state
+        log_to_journald("Processing brightness command: $message", LOG_DEBUG);
+
         $brightness = $message;
         $command = 0;  # Set level command
         $config->{last_brightness} = $brightness;  # Save brightness for subsequent ON commands
-    }
+        log_to_journald("Brightness command set to $brightness for $config->{ha_name}", LOG_DEBUG);
 
-    # Convert brightness percentage to scale if it's defined
-    $brightness = defined($brightness) ? int($brightness * 2) : 0xFF;
+        # Handle brightness changes
+        log_to_journald("Handling brightness change for $config->{ha_name}", LOG_DEBUG);
 
-    # Construct CAN bus command
-    my $prio = 6;
-    my $dgnhi = '1FE';
-    my $dgnlo = 'DB';
-    my $srcAD = 99;
-    my $duration = 255;
+        # Construct CAN bus command for brightness
+        my $prio = 6;
+        my $dgnhi = '1FE';
+        my $dgnlo = 'DB';
+        my $srcAD = 99;
+        $duration = 255;  # Duration for brightness command
 
-    my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
-    my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness, $command, $duration);
-    my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
+        my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
+        my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
+        $brightness = int($brightness * 2);  # Convert brightness to appropriate scale
+        my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $brightness, $command, $duration);
 
-    # Log and send the CAN bus command
-    if ($command_type eq 'brightness') {
-        log_to_journald("Setting brightness to $message for $config->{ha_name}", LOG_INFO);
+        log_to_journald("Sending CAN bus command for brightness: cansend $can_interface $hexCanId#$hexData", LOG_INFO);
         send_can_command($can_interface, $hexCanId, $hexData);
+
         finalize_brightness_setting($instance, $config->{ha_name});
-    } elsif ($command_type eq 'state' && $message eq 'ON') {
-        log_to_journald("Turning ON for $config->{ha_name} with brightness $brightness", LOG_INFO);
+
+    } elsif ($command_type eq 'lock') {
+        log_to_journald("Processing lock command: $message", LOG_DEBUG);
+
+        # Extract instance from payload (LOCK_14 or UNLOCK_17)
+        if ($message =~ /^LOCK_(\d+)$/) {
+            $instance = $1;
+            $reverse = 89;  # Reverse ID for lock command
+            $command = 1;  # Lock command
+            $duration = 1;  # Lock/Unlock action duration set to 1 second
+            log_to_journald("Locking device $config->{ha_name} with instance $instance", LOG_INFO);
+        } elsif ($message =~ /^UNLOCK_(\d+)$/) {
+            $instance = $1;
+            $reverse = 86;  # Reverse ID for unlock command
+            $command = 1;  # Unlock command
+            $duration = 1;  # Lock/Unlock action duration set to 1 second
+            log_to_journald("Unlocking device $config->{ha_name} with instance $instance", LOG_INFO);
+        } else {
+            log_to_journald("Unknown command for lock: $message", LOG_ERR);
+            return;
+        }
+
+        # Construct CAN bus command for stopping the opposing instance
+        my $prio = 6;
+        my $dgnhi = '1FE';
+        my $dgnlo = 'DB';
+        my $srcAD = 99;
+        my $stop_command = 3;  # Stop command for the opposing instance
+        my $stop_duration = 0; # Duration for stop command
+
+        my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
+        my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
+
+        # Send stop command for opposing instance
+        my $stopHexData = sprintf("%02XFF%02X%02X%02X00FFFF", $reverse, 0, $stop_command, $stop_duration);
+        log_to_journald("Sending CAN bus command to stop opposing instance: cansend $can_interface $hexCanId#$stopHexData", LOG_INFO);
+        send_can_command($can_interface, $hexCanId, $stopHexData);
+
+        # Construct CAN bus command for lock/unlock
+        my $desired_level = 200;  # Desired level to 100% (200 in decimal or C8 in hex)
+        my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $desired_level, $command, $duration);
+
+        log_to_journald("Sending CAN bus command: cansend $can_interface $hexCanId#$hexData", LOG_INFO);
+
+        # Send the lock/unlock CAN bus command
         send_can_command($can_interface, $hexCanId, $hexData);
-    } elsif ($command_type eq 'state' && $message eq 'OFF') {
-        log_to_journald("Turning OFF for $config->{ha_name}", LOG_INFO);
-        send_can_command($can_interface, $hexCanId, $hexData);
+
+    } else {
+        log_to_journald("Unknown command type: $command_type for $config->{ha_name}", LOG_ERR);
     }
 }
 
@@ -234,7 +314,7 @@ sub send_can_command {
 sub shutdown_gracefully {
     my ($signal) = @_;
     log_to_journald("Received $signal signal. Shutting down...", LOG_INFO);
-    $keep_running = 0;
+    $keep_running = 0;  # Signal the main loop to exit
 }
 
 # Initialize and connect to the MQTT broker, with retry logic and LWT
@@ -414,8 +494,8 @@ sub expand_template {
 sub log_to_journald {
     my ($message, $level) = @_;
     
-    $level //= LOG_INFO;
-    return if $level > $log_level;
+    $level //= LOG_INFO;  # Default log level is INFO
+    return if $level > $log_level;  # Skip logging if message level is higher than current log level
 
     openlog('hass2rvc', 'cons,pid', LOG_USER);
     syslog($level, $message);
