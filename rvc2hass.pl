@@ -431,19 +431,19 @@ sub publish_mqtt {
     }
 
     # Expand templates, ensuring each template variable is properly initialized
-    my $state_topic = expand_template($config->{state_topic}, $ha_name);
+    my $state_topic = expand_template($config->{state_topic}, $ha_name) if $device_class ne 'lock';  # No state topic for locks
     my $command_topic = expand_template($config->{command_topic}, $ha_name);
     my $brightness_state_topic = expand_template($config->{brightness_state_topic}, $ha_name) if $is_dimmable;
     my $brightness_command_topic = expand_template($config->{brightness_command_topic}, $ha_name) if $is_dimmable;
 
     # Ensure the configuration for the MQTT topics is defined before attempting to use them
-    if (!$state_topic || !$command_topic || ($is_dimmable && (!$brightness_state_topic || !$brightness_command_topic))) {
+    if ((!$state_topic && $device_class ne 'lock') || !$command_topic || ($is_dimmable && (!$brightness_state_topic || !$brightness_command_topic))) {
         log_to_journald("Undefined or invalid topic template for ha_name: $ha_name", LOG_ERR);
         return;
     }
 
     # Sanitize topics to remove double slashes
-    $state_topic =~ s/\/{2,}/\//g;
+    $state_topic =~ s/\/{2,}/\//g if defined $state_topic;
     $command_topic =~ s/\/{2,}/\//g;
     $brightness_state_topic =~ s/\/{2,}/\//g if defined $brightness_state_topic;
     $brightness_command_topic =~ s/\/{2,}/\//g if defined $brightness_command_topic;
@@ -458,7 +458,6 @@ sub publish_mqtt {
             name => $friendly_name,
             unique_id => $ha_name,
             device_class => $device_class,
-            state_topic => $state_topic,
             command_topic => $command_topic,
             availability => [
                 {
@@ -467,24 +466,39 @@ sub publish_mqtt {
                     payload_available => 'online'
                 }
             ],
-            payload_on => $config->{payload_on} // 'ON',
-            payload_off => $config->{payload_off} // 'OFF',
-            state_value_template => $config->{state_value_template} // '{{ value_json.state }}',
             device => {
                 suggested_area => $suggested_area,
                 manufacturer => $manufacturer,
             }
         );
 
-        # Additional properties for dimmable lights
-        if ($is_dimmable) {
-            $config_message{brightness} = JSON::true;
-            $config_message{brightness_scale} = 100;
-            $config_message{supported_color_modes} = ['brightness'];
-            $config_message{brightness_state_topic} = $brightness_state_topic;
-            $config_message{brightness_command_topic} = $brightness_command_topic;
-            $config_message{brightness_value_template} = $config->{brightness_value_template} // '{{ value_json.brightness }}';
-            $config_message{brightness_command_template} = $config->{brightness_command_template} // '{{ value }}';
+        # Special handling for locks
+        if ($device_class eq 'lock') {
+            $config_message{payload_lock} = $config->{payload_lock} // 'LOCK';
+            $config_message{payload_unlock} = $config->{payload_unlock} // 'UNLOCK';
+            $config_message{optimistic} = JSON::true;  # Locks can be optimistic, meaning no state feedback
+            $config_message{retain} = JSON::false;     # Don't retain lock command state
+        } elsif ($device_class eq 'light') {
+            # Additional properties for dimmable lights
+            if ($is_dimmable) {
+                $config_message{brightness} = JSON::true;
+                $config_message{brightness_scale} = 100;
+                $config_message{supported_color_modes} = ['brightness'];
+                $config_message{brightness_state_topic} = $brightness_state_topic;
+                $config_message{brightness_command_topic} = $brightness_command_topic;
+                $config_message{brightness_value_template} = $config->{brightness_value_template} // '{{ value_json.brightness }}';
+                $config_message{brightness_command_template} = $config->{brightness_command_template} // '{{ value }}';
+            }
+            $config_message{state_topic} = $state_topic;
+            $config_message{payload_on} = $config->{payload_on} // 'ON';
+            $config_message{payload_off} = $config->{payload_off} // 'OFF';
+            $config_message{state_value_template} = $config->{state_value_template} // '{{ value_json.state }}';
+        } else {
+            # Handling for other device classes like switches
+            $config_message{state_topic} = $state_topic if defined $state_topic;
+            $config_message{payload_on} = $config->{payload_on} // 'ON';
+            $config_message{payload_off} = $config->{payload_off} // 'OFF';
+            $config_message{state_value_template} = $config->{state_value_template} // '{{ value_json.state }}';
         }
 
         # Publish the /config message
@@ -497,40 +511,42 @@ sub publish_mqtt {
         $sent_configs{$ha_name} = $config;
     }
 
-    # Calculate the current state and brightness
-    my $calculated_state;
-    my $calculated_brightness = $result->{'operating status (brightness)'} // 0;  # Default to 0 if undefined
+    # Calculate the current state and brightness for non-lock devices
+    if ($device_class ne 'lock') {
+        my $calculated_state;
+        my $calculated_brightness = $result->{'operating status (brightness)'} // 0;  # Default to 0 if undefined
 
-    if ($device_class eq 'light') {
-        $calculated_state = ($calculated_brightness > 0) ? 'ON' : 'OFF';
-    } elsif ($device_class eq 'switch') {
-        $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
+        if ($device_class eq 'light') {
+            $calculated_state = ($calculated_brightness > 0) ? 'ON' : 'OFF';
+        } elsif ($device_class eq 'switch') {
+            $calculated_state = ($result->{'calculated_command'} && $result->{'calculated_command'} eq 'ON') ? 'ON' : 'OFF';
+        }
+
+        # Track the last sent state and brightness for this device
+        my $last_state = $sent_configs{$ha_name}->{last_state} // '';
+        my $last_brightness = $sent_configs{$ha_name}->{last_brightness} // '';
+
+        # Prepare the state message
+        my %state_message = (
+            state => $calculated_state,
+        );
+
+        # Add brightness to the state message if it's a dimmable light
+        $state_message{brightness} = $calculated_brightness if $is_dimmable;
+
+        # Publish the state message to the /state topic
+        my $state_json = $json->encode(\%state_message);
+        $mqtt->retain($state_topic, $state_json);
+
+        # Log changes only if the state or brightness has changed
+        if ($resend || $calculated_state ne $last_state || ($is_dimmable && $calculated_brightness != $last_brightness)) {
+            log_to_journald("State or brightness has changed for $ha_name. Publishing update: state=$calculated_state" . ($is_dimmable ? ", brightness=$calculated_brightness" : ""), LOG_INFO);
+        }
+
+        # Update the last sent state and brightness
+        $sent_configs{$ha_name}->{last_state} = $calculated_state;
+        $sent_configs{$ha_name}->{last_brightness} = $calculated_brightness if $is_dimmable;
     }
-
-    # Track the last sent state and brightness for this device
-    my $last_state = $sent_configs{$ha_name}->{last_state} // '';
-    my $last_brightness = $sent_configs{$ha_name}->{last_brightness} // '';
-
-    # Prepare the state message
-    my %state_message = (
-        state => $calculated_state,
-    );
-
-    # Add brightness to the state message if it's a dimmable light
-    $state_message{brightness} = $calculated_brightness if $is_dimmable;
-
-    # Publish the state message to the /state topic
-    my $state_json = $json->encode(\%state_message);
-    $mqtt->retain($state_topic, $state_json);
-
-    # Log changes only if the state or brightness has changed
-    if ($resend || $calculated_state ne $last_state || ($is_dimmable && $calculated_brightness != $last_brightness)) {
-        log_to_journald("State or brightness has changed for $ha_name. Publishing update: state=$calculated_state" . ($is_dimmable ? ", brightness=$calculated_brightness" : ""), LOG_INFO);
-    }
-
-    # Update the last sent state and brightness
-    $sent_configs{$ha_name}->{last_state} = $calculated_state;
-    $sent_configs{$ha_name}->{last_brightness} = $calculated_brightness if $is_dimmable;
 }
 
 # Function to replace template variables in topics

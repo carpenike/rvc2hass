@@ -172,6 +172,17 @@ templates:
       suggested_area: Exterior
       <<: *switchable_light_template
 
+# Door Locks
+
+1FEDB:
+  default:
+    - ha_name: "entrance_door_lock"
+      friendly_name: "Entrance Door Lock"
+      device_class: "lock"
+      command_topic: "homeassistant/lock/front_door/set"
+      payload_lock: 14
+      payload_unlock: 17
+
 # 17F00:
 #   default:
 #     - ha_name: "general_reset"
