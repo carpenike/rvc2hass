@@ -14,28 +14,28 @@ use File::Basename;
 use threads;
 use threads::shared;
 
-# Command-line options
+# Command-line options for debugging and log level
 my $debug = 0;
 my $log_level = LOG_INFO;
 GetOptions("debug" => \$debug, "log-level=i" => \$log_level);
 
-# Set log level for debugging
+# Set log level to DEBUG if debug flag is enabled
 $log_level = LOG_DEBUG if $debug;
 
 # Configuration Variables
-my $mqtt_host = $ENV{MQTT_HOST} || "localhost";
-my $mqtt_port = $ENV{MQTT_PORT} || 1883;
+my $mqtt_host = $ENV{MQTT_HOST} || "localhost";  # Default MQTT host is localhost
+my $mqtt_port = $ENV{MQTT_PORT} || 1883;         # Default MQTT port
 my $mqtt_username = $ENV{MQTT_USERNAME};
 my $mqtt_password = $ENV{MQTT_PASSWORD};
-my $max_retries = 5;
-my $retry_delay = 5;
-my $can_interface = 'can0';
-my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;
-my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;
-my $can_bus_mutex :shared;
-my $keep_running :shared = 1;
+my $max_retries = 5;  # Number of retries for MQTT connection
+my $retry_delay = 5;  # Delay between retries
+my $can_interface = 'can0';  # CAN interface name
+my $watchdog_usec = $ENV{WATCHDOG_USEC} // 0;  # Watchdog interval in microseconds
+my $watchdog_interval = $watchdog_usec ? int($watchdog_usec / 2 / 1_000_000) : 0;  # Watchdog interval in seconds
+my $can_bus_mutex :shared;  # Mutex for thread safety when accessing CAN bus
+my $keep_running :shared = 1;  # Shared variable to control main loop execution
 
-# Log environment variables if debugging is enabled
+# Log environment variables if debugging is enabled (excluding sensitive information)
 log_to_journald("Environment: " . join(", ", map { "$_=$ENV{$_}" } grep { $_ !~ /PASSWORD|SECRET/ } keys %ENV), LOG_DEBUG) if $debug;
 
 # Allow insecure MQTT logins (needed for certain MQTT brokers)
@@ -80,7 +80,7 @@ foreach my $dgn (keys %$lookup) {
             # Expand and subscribe to the command topic
             my $command_topic = expand_template($config->{command_topic}, $config->{ha_name});
 
-            # Clear retained messages for command topic
+            # Clear retained messages for command topic if defined
             $mqtt->retain($command_topic, '') if $command_topic;
 
             if ($command_topic) {
@@ -107,7 +107,7 @@ foreach my $dgn (keys %$lookup) {
             if ($config->{dimmable}) {
                 my $brightness_command_topic = expand_template($config->{brightness_command_topic}, $config->{ha_name});
 
-                # Clear retained messages for brightness command topic
+                # Clear retained messages for brightness command topic if defined
                 $mqtt->retain($brightness_command_topic, '') if $brightness_command_topic;
 
                 if ($brightness_command_topic) {
@@ -134,12 +134,13 @@ while ($keep_running) {
     } catch {
         log_to_journald("Error during MQTT tick: $_", LOG_ERR);
     };
-    sleep(1);
+    sleep(1);  # Sleep to prevent high CPU usage
 }
 
 log_to_journald("Exiting main loop. Cleaning up...", LOG_INFO);
 exit(0);
 
+# Process incoming MQTT commands and convert to CAN bus messages
 sub process_mqtt_command {
     my ($instance, $config, $message, $command_type) = @_;
 
@@ -150,8 +151,8 @@ sub process_mqtt_command {
 
     my $command;
     my $brightness;
-    my $duration = 0; # Default duration is 0 for state commands
-    my $reverse;      # Variable for reverse ID
+    my $duration = 0;  # Default duration is 0 for state commands
+    my $reverse;       # Variable for reverse ID
 
     if ($command_type eq 'state') {
         log_to_journald("Processing state command: $message", LOG_DEBUG);
@@ -223,7 +224,7 @@ sub process_mqtt_command {
         my $dgnhi = '1FE';
         my $dgnlo = 'DB';
         my $srcAD = 99;
-        my $duration = 255;
+        my $duration = 255;  # Set default duration for lights
 
         my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
         my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
@@ -296,7 +297,7 @@ sub send_can_command {
 sub shutdown_gracefully {
     my ($signal) = @_;
     log_to_journald("Received $signal signal. Shutting down...", LOG_INFO);
-    $keep_running = 0;
+    $keep_running = 0;  # Signal the main loop to exit
 }
 
 # Initialize and connect to the MQTT broker, with retry logic and LWT
@@ -476,8 +477,8 @@ sub expand_template {
 sub log_to_journald {
     my ($message, $level) = @_;
     
-    $level //= LOG_INFO;
-    return if $level > $log_level;
+    $level //= LOG_INFO;  # Default log level is INFO
+    return if $level > $log_level;  # Skip logging if message level is higher than current log level
 
     openlog('hass2rvc', 'cons,pid', LOG_USER);
     syslog($level, $message);
