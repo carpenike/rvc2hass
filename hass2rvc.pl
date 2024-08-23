@@ -194,10 +194,11 @@ sub process_mqtt_command {
         my $dgnhi = '1FE';
         my $dgnlo = 'DB';
         my $srcAD = 99;
+        my $desired_level = 200; # Set desired level to 100% (200 in decimal or C8 in hex)
 
         my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
         my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
-        my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, 0, $command, $duration);
+        my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $desired_level, $command, $duration);
 
         log_to_journald("Sending CAN bus command: cansend $can_interface $hexCanId#$hexData", LOG_INFO);
 
