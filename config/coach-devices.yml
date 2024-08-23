@@ -179,9 +179,9 @@ templates:
     - ha_name: "entrance_door_lock"
       friendly_name: "Entrance Door Lock"
       device_class: "lock"
-      command_topic: "homeassistant/lock/front_door/set"
-      payload_lock: 14
-      payload_unlock: 17
+      command_topic: "homeassistant/lock/entrance_door_lock/set"
+      payload_lock: "LOCK_14"
+      payload_unlock: "UNLOCK_17"
 
 # 17F00:
 #   default:
