@@ -334,6 +334,11 @@ sub publish_unmanaged_device {
     # Ensure instance is valid and not NaN
     $instance = defined($instance) && $instance !~ /NaN/i ? $instance : 'default';
 
+    # Validate and clean up result data before encoding to JSON
+    foreach my $key (keys %$result) {
+        $result->{$key} = '0' if $result->{$key} =~ /NaN|undefined/i;
+    }
+
     my $topic = "rvc2hass/$dgn/$instance";
     my $message = $json->encode($result);
 
@@ -587,7 +592,7 @@ sub decode {
         # Check for NaN or invalid data patterns (e.g., `FF`)
         if (!defined($value) || $value eq 'NaN' || $bytes =~ /^F+$/) {
             log_to_journald("Potential NaN or invalid data detected for parameter '$name': raw bytes = $bytes", LOG_DEBUG) if $debug;
-            $value = 'NaN';
+            $value = '0';  # Replace NaN with a safe fallback value like '0'
         }
 
         # Apply unit conversion if a unit is defined
@@ -597,7 +602,8 @@ sub decode {
 
             # Check again for NaN after conversion
             if ($value eq 'NaN') {
-                log_to_journald("NaN detected after conversion for parameter '$name'", LOG_DEBUG) if $debug;
+                log_to_journald("NaN detected after conversion for parameter '$name'", LOG_DEBUG);
+                $value = '0';  # Ensure we replace NaN after conversion as well
             }
         }
 
@@ -609,12 +615,12 @@ sub decode {
         }
 
         # Store the final decoded value in the result hash
-        $result{$name} = $value // 'undefined';
+        $result{$name} = $value // '0';  # Ensure no undefined values are stored
         log_to_journald("Decoded '$name': $result{$name}", LOG_DEBUG) if $debug;
     }
 
     # Ensure the instance value is handled correctly
-    $result{instance} = $result{instance} // 'undefined';
+    $result{instance} = $result{instance} // '0';  # Replace undefined with '0'
 
     return \%result;
 }
