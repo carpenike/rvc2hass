@@ -469,6 +469,7 @@ sub publish_mqtt {
             device => {
                 suggested_area => $suggested_area,
                 manufacturer => $manufacturer,
+                identifiers => [$ha_name],
             }
         );
 
