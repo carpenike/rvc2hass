@@ -151,6 +151,7 @@ sub process_mqtt_command {
     my $command;
     my $brightness;
     my $duration = 0; # Default duration is 0 for state commands
+    my $reverse;      # Variable for reverse ID
 
     if ($command_type eq 'state') {
         log_to_journald("Processing state command: $message", LOG_DEBUG);
@@ -174,11 +175,13 @@ sub process_mqtt_command {
         # Extract instance from payload (LOCK_14 or UNLOCK_17)
         if ($message =~ /^LOCK_(\d+)$/) {
             $instance = $1;
+            $reverse = 89;  # Reverse ID for lock command
             $command = 1;  # Lock command
             $duration = 1;  # Lock/Unlock action duration set to 1 second
             log_to_journald("Locking device $config->{ha_name} with instance $instance", LOG_INFO);
         } elsif ($message =~ /^UNLOCK_(\d+)$/) {
             $instance = $1;
+            $reverse = 86;  # Reverse ID for unlock command
             $command = 1;  # Unlock command
             $duration = 1;  # Lock/Unlock action duration set to 1 second
             log_to_journald("Unlocking device $config->{ha_name} with instance $instance", LOG_INFO);
@@ -186,18 +189,25 @@ sub process_mqtt_command {
             log_to_journald("Unknown command for lock: $message", LOG_ERR);
             return;
         }
-    }
 
-    # Construct CAN bus command
-    if ($command_type eq 'lock') {
+        # Construct CAN bus command for stopping the opposing instance
         my $prio = 6;
         my $dgnhi = '1FE';
         my $dgnlo = 'DB';
         my $srcAD = 99;
-        my $desired_level = 200; # Set desired level to 100% (200 in decimal or C8 in hex)
+        my $stop_command = 3;  # Stop command for the opposing instance
+        my $stop_duration = 0; # Duration for stop command
 
         my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
         my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
+
+        # Send stop command for opposing instance
+        my $stopHexData = sprintf("%02XFF%02X%02X%02X00FFFF", $reverse, 0, $stop_command, $stop_duration);
+        log_to_journald("Sending CAN bus command to stop opposing instance: cansend $can_interface $hexCanId#$stopHexData", LOG_INFO);
+        send_can_command($can_interface, $hexCanId, $stopHexData);
+
+        # Construct CAN bus command for lock/unlock
+        my $desired_level = 200;  # Desired level to 100% (200 in decimal or C8 in hex)
         my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, $desired_level, $command, $duration);
 
         log_to_journald("Sending CAN bus command: cansend $can_interface $hexCanId#$hexData", LOG_INFO);
