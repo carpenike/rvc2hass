@@ -592,10 +592,10 @@ sub decode {
         if ($type =~ /^bit/) {
             my $bitrange = $parameter->{bit};
             my $bits = get_bits($bytes, $bitrange);
-            $value = Math::BigInt->new('0b' . $bits)->bstr() if defined $bits;
+            $value = oct('0b' . $bits) if defined $bits;
         } else {
-            # Handle full-byte parameters
-            $value = Math::BigInt->new($bytes)->bstr();
+            # Use BigInt only if necessary, otherwise use hex
+            $value = length($bytes) > 8 ? Math::BigInt->new($bytes)->bstr() : hex($bytes);
         }
 
         # Check for NaN or invalid data patterns (e.g., `FF`)
