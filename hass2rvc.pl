@@ -84,11 +84,21 @@ foreach my $dgn (keys %$lookup) {
             $mqtt->retain($command_topic, '') if $command_topic;
 
             if ($command_topic) {
-                $mqtt->subscribe($command_topic => sub {
-                    my ($topic, $message) = @_;
-                    log_to_journald("Received MQTT message on $topic: $message", LOG_DEBUG);
-                    process_mqtt_command($instance, $config, $message, 'state');
-                });
+                if ($config->{device_class} && $config->{device_class} eq 'lock') {
+                    # Subscribe specifically for lock/unlock commands
+                    $mqtt->subscribe($command_topic => sub {
+                        my ($topic, $message) = @_;
+                        log_to_journald("Received Lock/Unlock command on $topic: $message", LOG_DEBUG);
+                        process_mqtt_command($instance, $config, $message, 'lock');
+                    });
+                } else {
+                    # Subscribe for other commands (state changes, etc.)
+                    $mqtt->subscribe($command_topic => sub {
+                        my ($topic, $message) = @_;
+                        log_to_journald("Received MQTT message on $topic: $message", LOG_DEBUG);
+                        process_mqtt_command($instance, $config, $message, 'state');
+                    });
+                }
             } else {
                 log_to_journald("Failed to expand command topic for ha_name $config->{ha_name}", LOG_ERR);
             }
@@ -108,18 +118,6 @@ foreach my $dgn (keys %$lookup) {
                     });
                 } else {
                     log_to_journald("Failed to expand brightness command topic for ha_name $config->{ha_name}", LOG_ERR);
-                }
-            }
-
-            # Subscribe to lock/unlock commands if the device is a lock
-            if ($config->{device_class} && $config->{device_class} eq 'lock') {
-                my $lock_command_topic = $command_topic;
-                if ($lock_command_topic) {
-                    $mqtt->subscribe($lock_command_topic => sub {
-                        my ($topic, $message) = @_;
-                        log_to_journald("Received Lock/Unlock command on $topic: $message", LOG_DEBUG);
-                        process_mqtt_command($instance, $config, $message, 'lock');
-                    });
                 }
             }
         }
