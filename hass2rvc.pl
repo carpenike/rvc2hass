@@ -15,7 +15,7 @@ use threads;
 use threads::shared;
 
 # Command-line options for debugging and log level
-my $debug = 1;
+my $debug = 0;
 my $log_level = LOG_INFO;
 GetOptions("debug" => \$debug, "log-level=i" => \$log_level);
 
@@ -140,6 +140,7 @@ while ($keep_running) {
 log_to_journald("Exiting main loop. Cleaning up...", LOG_INFO);
 exit(0);
 
+# Process incoming MQTT commands and convert to CAN bus messages
 sub process_mqtt_command {
     my ($instance, $config, $message, $command_type) = @_;
 
