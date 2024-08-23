@@ -291,10 +291,10 @@ sub process_packet {
             $instance = 'default';  # Set to a default value
         }
 
-        # Publish the fully decoded data before filtering
-        publish_full_decoded_data($dgn, $instance, $result);
+        # Publish the fully decoded data for all devices
+        publish_decoded_data($dgn, $instance, $result);
 
-        # Check for configured devices or publish unmanaged data
+        # Check for configured devices and publish the data
         if (exists $lookup->{$dgn} && exists $lookup->{$dgn}->{$instance}) {
             my $configs = $lookup->{$dgn}->{$instance};
             foreach my $config (@$configs) {
@@ -327,7 +327,6 @@ sub process_packet {
             }
         } else {
             log_missing_config($dgn, $instance);
-            publish_unmanaged_device($dgn, $instance, $result);  # Publish unmanaged devices
         }
     } else {
         log_to_journald("No data to publish for DGN $dgn", LOG_DEBUG) if $debug;
@@ -347,32 +346,13 @@ sub publish_raw_can_data {
     log_to_journald("Published raw CAN data to $topic", LOG_DEBUG) if $debug;
 }
 
-# Publish the fully decoded data to a specific topic for comparison
-sub publish_full_decoded_data {
+# Publish the fully decoded data to a specific topic for all devices
+sub publish_decoded_data {
     my ($dgn, $instance, $result) = @_;
-    my $topic = "rvc2hass/full_decoded/$dgn/$instance";
+    my $topic = "rvc2hass/decoded/$dgn/$instance";
     my $json_message = $json->encode($result);
     $mqtt->publish($topic, $json_message);
-    log_to_journald("Published full decoded data to $topic", LOG_DEBUG) if $debug;
-}
-
-# Publish data for unmanaged devices to rvc2hass/# as JSON
-sub publish_unmanaged_device {
-    my ($dgn, $instance, $result) = @_;
-
-    # Ensure instance is valid and not NaN
-    $instance = defined($instance) && $instance !~ /NaN/i ? $instance : 'default';
-
-    # Validate and clean up result data before encoding to JSON
-    foreach my $key (keys %$result) {
-        $result->{$key} = '0' if $result->{$key} =~ /NaN|undefined/i;
-    }
-
-    my $topic = "rvc2hass/$dgn/$instance";
-    my $message = $json->encode($result);
-
-    $mqtt->publish($topic, $message);
-    log_to_journald("Published unmanaged device data to $topic", LOG_DEBUG) if $debug;
+    log_to_journald("Published decoded data to $topic", LOG_DEBUG) if $debug;
 }
 
 # Handle dimmable light packets, calculating brightness and command state
