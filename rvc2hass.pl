@@ -419,11 +419,14 @@ sub publish_mqtt {
     }
 
     my $ha_name = $config->{ha_name} // '';
-    my $friendly_name = $config->{friendly_name} // '';
+    my $friendly_name = $config->{device_name} // $config->{ha_name};  # Use device_name or fall back to ha_name
     my $device_class = $config->{device_class} // 'switch';  # Default to 'switch' if not specified
     my $is_dimmable = $config->{dimmable} // 0;  # Default to non-dimmable if not specified
     my $suggested_area = $config->{suggested_area};  # Retrieve the suggested area from the device config
     my $manufacturer = $config->{manufacturer} // 'Entegra Coach';  # Default to Entegra Coach if not specified
+
+    # Determine device identifiers
+    my $device_identifiers = $config->{device_identifiers} // [$ha_name];  # Use device_identifiers or fall back to ha_name
 
     if ($ha_name eq '') {
         log_to_journald("ha_name is not defined or empty for this configuration.", LOG_ERR);
@@ -469,7 +472,7 @@ sub publish_mqtt {
             device => {
                 suggested_area => $suggested_area,
                 manufacturer => $manufacturer,
-                identifiers => [$ha_name],
+                identifiers => $device_identifiers,  # Use the new device identifiers
                 name => $friendly_name,
             }
         );
