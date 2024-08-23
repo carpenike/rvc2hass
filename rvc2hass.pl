@@ -356,6 +356,25 @@ sub publish_full_decoded_data {
     log_to_journald("Published full decoded data to $topic", LOG_DEBUG) if $debug;
 }
 
+# Publish data for unmanaged devices to rvc2hass/# as JSON
+sub publish_unmanaged_device {
+    my ($dgn, $instance, $result) = @_;
+
+    # Ensure instance is valid and not NaN
+    $instance = defined($instance) && $instance !~ /NaN/i ? $instance : 'default';
+
+    # Validate and clean up result data before encoding to JSON
+    foreach my $key (keys %$result) {
+        $result->{$key} = '0' if $result->{$key} =~ /NaN|undefined/i;
+    }
+
+    my $topic = "rvc2hass/$dgn/$instance";
+    my $message = $json->encode($result);
+
+    $mqtt->publish($topic, $message);
+    log_to_journald("Published unmanaged device data to $topic", LOG_DEBUG) if $debug;
+}
+
 # Handle dimmable light packets, calculating brightness and command state
 sub handle_dimmable_light {
     my ($config, $result) = @_;
