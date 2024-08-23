@@ -149,6 +149,7 @@ sub process_mqtt_command {
     my $command;
     my $brightness;
 
+    # Handle different command types
     if ($command_type eq 'state') {
         if ($message eq 'ON') {
             # Use the last brightness value if available, otherwise use default
@@ -164,13 +165,13 @@ sub process_mqtt_command {
         $command = 0;  # Set level command
         $config->{last_brightness} = $brightness;  # Save brightness for subsequent ON commands
     } elsif ($command_type eq 'lock') {
-        # Ensure instance and command are extracted correctly from the message
+        # Match LOCK or UNLOCK command pattern
         if ($message =~ /^LOCK_(\d+)$/) {
-            $instance = $1;  # Extract instance from the message 'LOCK_14'
+            $instance = $1;  # Extract instance number from 'LOCK_14'
             $command = 1;    # Lock command
             log_to_journald("Locking device $config->{ha_name} with instance $instance", LOG_INFO);
         } elsif ($message =~ /^UNLOCK_(\d+)$/) {
-            $instance = $1;  # Extract instance from the message 'UNLOCK_17'
+            $instance = $1;  # Extract instance number from 'UNLOCK_17'
             $command = 2;    # Unlock command
             log_to_journald("Unlocking device $config->{ha_name} with instance $instance", LOG_INFO);
         } else {
@@ -179,26 +180,28 @@ sub process_mqtt_command {
         }
     }
 
-    # Ensure instance is numeric or set to a default value (like 0)
-    $instance = (defined $instance && $instance =~ /^\d+$/) ? $instance : 0;
-
-    # Ensure command is initialized
+    # Validate instance and command
     if (!defined $command) {
         log_to_journald("Command is uninitialized for message: $message and ha_name: $config->{ha_name}", LOG_ERR);
         return;  # Exit early if command is uninitialized
     }
 
-    # Construct CAN bus command
+    $instance = (defined $instance && $instance =~ /^\d+$/) ? $instance : 0;  # Ensure instance is numeric
+
+    # Construct CAN bus command based on type
     my $prio = 6;
     my $dgnhi = '1FE';
     my $dgnlo = 'DB';
     my $srcAD = 99;
 
     if ($command_type eq 'lock') {
-        my $duration = 0;  # Lock/Unlock typically doesn't need a duration
+        my $duration = 0;  # No duration needed for lock/unlock
         my $binCanId = sprintf("%b0%b%b%b", hex($prio), hex($dgnhi), hex($dgnlo), hex($srcAD));
         my $hexCanId = sprintf("%08X", oct("0b$binCanId"));
         my $hexData = sprintf("%02XFF%02X%02X%02X00FFFF", $instance, 0, $command, $duration);
+
+        # Log the CAN bus command being sent
+        log_to_journald("Sending CAN bus command: cansend $can_interface $hexCanId#$hexData", LOG_INFO);
 
         # Send the lock/unlock CAN bus command
         send_can_command($can_interface, $hexCanId, $hexData);
