@@ -166,23 +166,13 @@ sub process_mqtt_command {
     } elsif ($command_type eq 'lock') {
         # Extract instance from payload if it's a lock command
         if ($message eq $config->{payload_lock}) {
-            ($instance) = $config->{payload_lock} =~ /_(\d+)$/;  # Extract instance from payload_lock
-            if (defined $instance) {
-                $command = 1;  # Lock command
-                log_to_journald("Locking device $config->{ha_name} with instance $instance", LOG_INFO);
-            } else {
-                log_to_journald("Failed to extract instance from payload_lock: $config->{payload_lock}", LOG_ERR);
-                return;  # Exit early if instance extraction fails
-            }
+            ($instance) = $config->{payload_lock} =~ /_(\d+)$/;  # Extract instance number after "LOCK_"
+            $command = 1;  # Lock command
+            log_to_journald("Locking device $config->{ha_name} with instance $instance", LOG_INFO);
         } elsif ($message eq $config->{payload_unlock}) {
-            ($instance) = $config->{payload_unlock} =~ /_(\d+)$/;  # Extract instance from payload_unlock
-            if (defined $instance) {
-                $command = 2;  # Unlock command
-                log_to_journald("Unlocking device $config->{ha_name} with instance $instance", LOG_INFO);
-            } else {
-                log_to_journald("Failed to extract instance from payload_unlock: $config->{payload_unlock}", LOG_ERR);
-                return;  # Exit early if instance extraction fails
-            }
+            ($instance) = $config->{payload_unlock} =~ /_(\d+)$/;  # Extract instance number after "UNLOCK_"
+            $command = 2;  # Unlock command
+            log_to_journald("Unlocking device $config->{ha_name} with instance $instance", LOG_INFO);
         } else {
             log_to_journald("Unknown command for lock: $message", LOG_ERR);
             return;
