@@ -470,6 +470,7 @@ sub publish_mqtt {
                 suggested_area => $suggested_area,
                 manufacturer => $manufacturer,
                 identifiers => [$ha_name],
+                name => $friendly_name,
             }
         );
 
