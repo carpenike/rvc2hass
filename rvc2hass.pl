@@ -469,12 +469,12 @@ sub publish_mqtt {
                     payload_available => 'online'
                 }
             ],
-            device => {
-                suggested_area => $suggested_area,
-                manufacturer => $manufacturer,
-                # identifiers => $device_identifiers,  # Use the new device identifiers
-                #name => $friendly_name,
-            }
+            # device => {
+            #     suggested_area => $suggested_area,
+            #     manufacturer => $manufacturer,
+            #     # identifiers => $device_identifiers,  # Use the new device identifiers
+            #     #name => $friendly_name,
+            # }
         );
 
         # Special handling for locks
