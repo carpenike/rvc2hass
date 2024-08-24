@@ -99,14 +99,12 @@ templates:
       friendly_name: Main Ceiling Accent Light A
       suggested_area: Main Living Area
       device_identifiers: ["main_ceiling_accent_light"]
-      device_name: "Main Ceiling Accent Light"
       <<: *dimmable_light_template
   40:
     - ha_name:  main_ceiling_accent_light_b
       friendly_name: Main Ceiling Accent Light B
       suggested_area: Main Living Area
       device_identifiers: ["main_ceiling_accent_light"]
-      device_name: "Main Ceiling Accent Light"
       <<: *dimmable_light_template
   41:
     - ha_name:  main_driver_side_ceiling_light
