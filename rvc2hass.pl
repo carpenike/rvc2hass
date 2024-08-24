@@ -458,7 +458,7 @@ sub publish_mqtt {
 
         # Prepare the base configuration message
         my %config_message = (
-            #name => $friendly_name,
+            name => $friendly_name,
             unique_id => $ha_name,
             device_class => $device_class,
             command_topic => $command_topic,
@@ -473,7 +473,7 @@ sub publish_mqtt {
                 suggested_area => $suggested_area,
                 manufacturer => $manufacturer,
                 identifiers => $device_identifiers,  # Use the new device identifiers
-                name => $friendly_name,
+                #name => $friendly_name,
             }
         );
 
