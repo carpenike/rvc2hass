@@ -472,7 +472,7 @@ sub publish_mqtt {
             device => {
                 suggested_area => $suggested_area,
                 manufacturer => $manufacturer,
-                identifiers => $device_identifiers,  # Use the new device identifiers
+                # identifiers => $device_identifiers,  # Use the new device identifiers
                 #name => $friendly_name,
             }
         );
